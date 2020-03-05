@@ -14,9 +14,7 @@ In the current version, the parallel ZPIC doesn't support:
 
 ## Plasma Experiments / Input
 In the same way of the original code, the simulation paramenters are set in a .c file in input folder that are later included in the main.c
-```
-#include "input/<filename>.c"
-```
+
 Two widely known plasma experiments - LWFA and Weibel Instability - are already included. Each experiment have a smaller and a larger variant.
 
 ## Output
