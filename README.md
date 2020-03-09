@@ -28,7 +28,7 @@ By default, the ZPIC produce the following maps (every 50 iterations):
 
 Also, ZPIC monitors the EM fields' energy and particles' energy through all the simulation.
 
-All output files are in the .csv format with ";" as delimiter. The last column of each map **MUST** be removed before being processed!
+All output files are in the .csv format with ";" as delimiter. 
 
 ## Compilation and Execution
 ```

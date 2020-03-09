@@ -45,12 +45,11 @@ void save_data_csv(t_fld *grid, unsigned int sizeX, unsigned int sizeY, const ch
 	{
 		for (unsigned int j = 0; j < sizeY; j++)
 		{
-			for (unsigned int i = 0; i < sizeX; i++)
+			for (unsigned int i = 0; i < sizeX - 1; i++)
 			{
 				fprintf(file, "%f;", grid[i + j * sizeX]);
 			}
-
-			fprintf(file, "\n");
+			fprintf(file, "%f\n", grid[(j + 1) * sizeX - 1]);
 		}
 	} else
 	{
