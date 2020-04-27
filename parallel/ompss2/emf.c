@@ -585,8 +585,8 @@ void emf_update_gc_y(t_emf *emf)
 		}
 	}
 
-	#pragma oss atomic
-	_emf_time += timer_interval_seconds(t0, timer_ticks());
+	//#pragma oss atomic
+	//_emf_time += timer_interval_seconds(t0, timer_ticks());
 }
 
 void emf_move_window(t_emf *emf)
@@ -642,7 +642,7 @@ void emf_advance(t_emf *emf, const t_current *current)
 	if (emf->moving_window) emf_move_window(emf);
 
 	// Update timing information
-	#pragma oss atomic
-	_emf_time += timer_interval_seconds(t0, timer_ticks());
+	//#pragma oss atomic
+	//_emf_time += timer_interval_seconds(t0, timer_ticks());
 }
 

@@ -5,6 +5,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include "timer.h"
+
+static int _n_regions = 0;
+
+int get_n_regions()
+{
+	return _n_regions;
+}
 
 /*********************************************************************************************
  Initialisation
@@ -20,6 +28,8 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 	region->nx[0] = nx[0];
 	region->nx[1] = region->limits_y[1] - region->limits_y[0];
 
+	region->iter_time = 0.0;
+
 	// Initialise particles in the region
 	t_particle_vector *restrict particles;
 
@@ -27,28 +37,47 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 	region->species = (t_species*) malloc(n_spec * sizeof(t_species));
 	assert(region->species);
 
+	#pragma acc set device_num(0)
+	int start, end;
 	for (int n = 0; n < n_spec; ++n)
 	{
-		spec_new(&region->species[n], spec[n].name, spec[n].m_q, spec[n].ppc, spec[n].ufl, spec[n].uth,
-				spec[n].nx, spec[n].box, spec[n].dt, &spec[n].density);
+		spec_new(&region->species[n], spec[n].name, spec[n].m_q, spec[n].ppc, spec[n].ufl,
+				spec[n].uth, spec[n].nx, spec[n].box, spec[n].dt, &spec[n].density);
 
 		particles = &region->species[n].main_vector;
 
-		for (int i = 0; i < spec[n].main_vector.size; ++i)
+		const int ppc = region->species[n].ppc[1] * region->species[n].ppc[0];
+
+		switch (spec[n].density.type)
 		{
-			t_part part = spec[n].main_vector.data[i];
+			case STEP:
+				start = spec->density.start / spec->dx[0];
+				particles->size = (region->nx[0] - start) * region->nx[1] * ppc;
+				break;
 
-			if(part.iy < region->limits_y[1] && part.iy >= region->limits_y[0])
-			{
-				// Check if buffer is large enough and if not reallocate
-				if (particles->size + 1 > particles->size_max)
-				{
-					particles->size_max = particles->size_max + 1024;
-					particles->data = realloc((void*) particles->data, particles->size_max * sizeof(t_part));
-				}
+			case SLAB:
+				start = spec->density.start / spec->dx[0] - spec->n_move;
+				end = spec->density.end / spec->dx[0] - spec->n_move;
+				particles->size = (end - start) * region->nx[1] * ppc;
+				break;
 
-				particles->data[particles->size++] = part;
-			}
+			default:
+				particles->size = region->nx[0] * region->nx[1] * ppc;
+				break;
+		}
+
+		particles->size_max = particles->size;
+		particles->data = malloc(particles->size * sizeof(t_part));
+		memcpy(particles->data, spec[n].main_vector.data, particles->size * sizeof(t_part));
+
+		spec[n].main_vector.size -= particles->size;
+		void *restrict ptr = malloc(spec[n].main_vector.size * sizeof(t_part));
+
+		if(ptr)
+		{
+			memcpy(ptr, spec[n].main_vector.data + particles->size, spec[n].main_vector.size * sizeof(t_part));
+			free(spec[n].main_vector.data);
+			spec[n].main_vector.data = ptr;
 		}
 	}
 
@@ -78,6 +107,8 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 		// Bridge the last region with the first
 		p->prev = region;
 		region->next = p;
+
+		_n_regions = n_regions;
 	}
 }
 
@@ -86,10 +117,6 @@ void region_link_adj_regions(t_region *region)
 {
 	current_overlap_zone(&region->local_current, &region->prev->local_current);
 	emf_overlap_zone(&region->local_emf, &region->prev->local_emf);
-
-	for(int i = 0; i < region->n_species; i++)
-		spec_adjacent_vectors(&region->species[i], &region->next->species[i].temp_buffer[0],
-			&region->prev->species[i].temp_buffer[1]);
 }
 
 // Set moving window
@@ -98,35 +125,36 @@ void region_set_moving_window(t_region *region)
 	region->local_current.moving_window = true;
 	region->local_emf.moving_window = true;
 
-	for(int i = 0; i < region->n_species; i++)
+	for (int i = 0; i < region->n_species; i++)
 		region->species[i].moving_window = true;
 }
 
 // Add a laser to all the regions
 void region_add_laser(t_region *region, t_emf_laser *laser)
 {
-	if(region->id != 0) while(region->id != 0) region = region->next;
+	if (region->id != 0) while (region->id != 0)
+		region = region->next;
 
 	t_region *p = region;
 	do
 	{
 		emf_add_laser(&p->local_emf, laser, p->limits_y[0]);
 		p = p->next;
-	}while(p->id != 0);
+	} while (p->id != 0);
 
 	p = region;
 	do
 	{
-		if(p->id != 0) emf_update_gc_y(&p->local_emf);
+		if (p->id != 0) emf_update_gc_y(&p->local_emf);
 		p = p->next;
-	}while(p->id != 0);
+	} while (p->id != 0);
 
 	p = region;
 	do
 	{
 		div_corr_x(&p->local_emf);
 		p = p->next;
-	}while(p->id != 0);
+	} while (p->id != 0);
 
 	p = region;
 	do
@@ -134,7 +162,7 @@ void region_add_laser(t_region *region, t_emf_laser *laser)
 		emf_update_gc_y(&p->local_emf);
 		emf_update_gc_x(&p->local_emf);
 		p = p->next;
-	}while(p->id != 0);
+	} while (p->id != 0);
 }
 
 void region_delete(t_region *region)
@@ -151,112 +179,100 @@ void region_delete(t_region *region)
  Advance
  *********************************************************************************************/
 
-// Spec advance and current reduction in x for all the regions (recursively)
+// Spec advance for all the regions (recursively)
 void region_spec_advance(t_region *region)
 {
-	#pragma oss task in(region->local_emf.E_buf[0; region->local_emf.total_size])\
-	in(region->local_emf.B_buf[0; region->local_emf.total_size]) \
-	inout({region->species[n].main_vector, n = 0; region->n_species}) \
-	out({region->next->species[n].temp_buffer[0], n = 0; region->n_species}) \
-	out({region->prev->species[n].temp_buffer[1], n = 0; region->n_species}) \
-	out(region->local_current.J_buf[0; region->local_current.total_size]) \
-	label(Spec Advance)
+	current_zero(&region->local_current);
+
+	for (int i = 0; i < region->n_species; i++)
 	{
-		current_zero(&region->local_current);
-
-		for (int i = 0; i < region->n_species; i++)
-			spec_advance(&region->species[i], &region->local_emf, &region->local_current, region->limits_y);
-
-		current_reduction_x(&region->local_current);
+		spec_advance(&region->species[i], &region->local_emf, &region->local_current,
+				region->limits_y);
+		spec_post_processing(&region->species[i], &region->next->species[i],
+				&region->prev->species[i], region->limits_y);
 	}
 
-	if(region->next->id != 0) region_spec_advance(region->next);
+	if (region->next->id != 0) region_spec_advance(region->next);
 }
 
 // Update the particle vector in all the regions (recursively)
 void region_spec_update(t_region *region)
 {
-	#pragma oss task in({region->species[n].temp_buffer[0:1], n = 0; region->n_species}) \
-	inout({region->species[n].main_vector, n = 0; region->n_species}) label(Spec Update)
 	for (int i = 0; i < region->n_species; i++)
 		spec_update_main_vector(&region->species[i]);
 
-	if(region->next->id != 0) region_spec_update(region->next);
+	if (region->next->id != 0) region_spec_update(region->next);
+}
+
+// Current reduction in y for all the regions (recursive calling)
+void region_current_reduction_x(t_region *region)
+{
+	current_reduction_x(&region->local_current);
+	if (region->next->id != 0) region_current_reduction_x(region->next);
 }
 
 // Current reduction in y for all the regions (recursive calling)
 void region_current_reduction_y(t_region *region)
 {
-	#pragma oss task inout(region->local_current.J_buf[0;region->local_current.overlap_zone]) \
-	inout(region->local_current.J_upper[-region->local_current.gc[0][0];region->local_current.overlap_zone]) \
-	label(Current Reduction Y)
 	current_reduction_y(&region->local_current);
-
-	if(region->next->id != 0) region_current_reduction_y(region->next);
+	if (region->next->id != 0) region_current_reduction_y(region->next);
 }
 
 // Apply the filter to the current buffer in all regions recursively. Then is necessary to
 // update the ghost cells for produce correct results
 void region_current_smooth(t_region *region, enum CURRENT_SMOOTH_MODE mode)
 {
-	switch (mode) {
+	switch (mode)
+	{
 		case SMOOTH_X:
-			#pragma oss task inout(region->local_current.J_buf[0;region->local_current.total_size]) \
-			label(Current Smooth X)
 			current_smooth_x(&region->local_current);
 			break;
 
 		case CURRENT_UPDATE_GC:
-			#pragma oss task inout(region->local_current.J_buf[0; region->local_current.overlap_zone]) \
-			inout(region->local_current.J_upper[-region->local_current.gc[0][0]; region->local_current.overlap_zone]) \
-			label(Current Update GC)
 			current_gc_update_y(&region->local_current);
 			break;
+
 		default:
 			break;
 	}
 
-	if(region->next->id != 0) region_current_smooth(region->next, mode);
+	if (region->next->id != 0) region_current_smooth(region->next, mode);
 }
 
 // Advance the EMF in each region recursively. Then is necessary update the ghost cells to reflect the
 // new values
 void region_emf_advance(t_region *region, enum EMF_UPDATE mode)
 {
-	switch (mode) {
+	switch (mode)
+	{
 		case EMF_ADVANCE:
-			#pragma oss task in(region->local_current.J_buf[0; region->local_current.total_size]) \
-			inout(region->local_emf.E_buf[0; region->local_emf.total_size]) \
-			inout(region->local_emf.B_buf[0; region->local_emf.total_size]) \
-			label(EMF Advance)
 			emf_advance(&region->local_emf, &region->local_current);
 			break;
 
 		case EMF_UPDATE_GC:
-			#pragma oss task inout(region->local_emf.B_buf[0; region->local_emf.overlap]) \
-			inout(region->local_emf.B_upper[-region->local_emf.gc[0][0]; region->local_emf.overlap]) \
-			inout(region->local_emf.E_buf[0; region->local_emf.overlap]) \
-			inout(region->local_emf.E_upper[-region->local_emf.gc[0][0]; region->local_emf.overlap]) \
-			label(EMF Update GC)
 			emf_update_gc_y(&region->local_emf);
 			break;
+
 		default:
 			break;
 	}
 
-	if(region->next->id != 0) region_emf_advance(region->next, mode);
+	if (region->next->id != 0) region_emf_advance(region->next, mode);
 }
 
 // Advance one iteration for all the regions. Always begin with the first region (id = 0)
 void region_advance(t_region *region)
 {
-	if(region->id != 0) while(region->id != 0) region = region->next;
+	if (region->id != 0) while (region->id != 0)
+		region = region->next;
 
 	region_spec_advance(region);
 	region_spec_update(region);
+
+	region_current_reduction_x(region);
 	region_current_reduction_y(region);
 
-	if(region->local_current.smooth.xtype != NONE)
+	if (region->local_current.smooth.xtype != NONE)
 	{
 		region_current_smooth(region, SMOOTH_X);
 		region_current_smooth(region, CURRENT_UPDATE_GC);
@@ -274,7 +290,8 @@ void region_charge_report(const t_region *region, t_part_data *charge, int i_spe
 	spec_deposit_charge(&region->species[i_spec], charge);
 }
 
-void region_emf_report(const t_region *region, t_fld *restrict E_mag, t_fld *restrict B_mag, const int nrow)
+void region_emf_report(const t_region *region, t_fld *restrict E_mag, t_fld *restrict B_mag,
+		const int nrow)
 {
 	emf_report_magnitude(&region->local_emf, E_mag, B_mag, nrow, region->limits_y[0]);
 }

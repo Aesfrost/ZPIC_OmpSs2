@@ -43,5 +43,6 @@ void sim_report_energy(t_simulation *sim);
 void sim_report_charge(t_simulation *sim);
 void sim_report_emf(t_simulation *sim);
 void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1);
+void sim_region_timings(t_simulation *sim);
 
 #endif

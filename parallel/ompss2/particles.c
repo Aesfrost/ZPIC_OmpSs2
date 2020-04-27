@@ -46,6 +46,28 @@ double spec_perf(void)
 /*********************************************************************************************
  Vector Handling
  *********************************************************************************************/
+void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const int type_size)
+{
+	#pragma acc set device_num(0)
+
+	if(*ptr == NULL) *ptr = malloc(new_size * type_size);
+	else
+	{
+		void *restrict temp = malloc(new_size * type_size);
+
+		if(temp)
+		{
+			memcpy(temp, *ptr, old_size * type_size);
+			free(*ptr);
+			*ptr = temp;
+		}else
+		{
+			printf("Error in allocating particle vector. Exiting...\n");
+			exit(1);
+		}
+	}
+}
+
 /**
  * Add to the content of the temporary buffer into the particles vector
  * @param spec  Particle species
@@ -72,8 +94,7 @@ void spec_update_main_vector(t_species *spec)
 				if (spec->main_vector.size + size_temp - j > spec->main_vector.size_max)
 				{
 					spec->main_vector.size_max = ((spec->main_vector.size_max + size_temp - j) / 1024 + 1) * 1024;
-					spec->main_vector.data = realloc((void*) spec->main_vector.data,
-							spec->main_vector.size_max * sizeof(t_part));
+					realloc_vector(&spec->main_vector.data, spec->main_vector.size, spec->main_vector.size_max, sizeof(t_part));
 				}
 
 				spec->main_vector.size++;
@@ -107,8 +128,8 @@ void spec_add_to_temp_vector(t_particle_vector *temp, t_part part)
 {
 	if (temp->size + 1 > temp->size_max)
 	{
-		temp->size_max = temp->size_max + 32;
-		temp->data = realloc((void*) temp->data, temp->size_max * sizeof(t_part));
+		temp->size_max = temp->size_max + 1024;
+		realloc_vector(&temp->data, temp->size, temp->size_max, sizeof(t_part));
 	}
 
 	temp->data[temp->size] = part;
@@ -247,19 +268,14 @@ void spec_inject_particles(t_species *spec, const int range[][2])
 	// Get maximum number of particles to inject
 	int np_inj = (range[0][1] - range[0][0]) * (range[1][1] - range[1][0]) * spec->ppc[0] * spec->ppc[1];
 
+	#pragma acc set device_num(0)
+
 	// Check if buffer is large enough and if not reallocate
 	if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
 	{
 		spec->main_vector.size_max = ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024;
-		void *ptr = realloc((void*) spec->main_vector.data,
-				spec->main_vector.size_max * sizeof(t_part));
-
-		if (ptr) spec->main_vector.data = ptr;
-		else
-		{
-			printf("Error in allocating particle vector. Exiting...\n");
-			exit(1);
-		}
+		if(!spec->main_vector.data) spec->main_vector.data = malloc(spec->main_vector.size_max * sizeof(t_part));
+		else realloc_vector(&spec->main_vector.data, spec->main_vector.size, spec->main_vector.size_max, sizeof(t_part));
 	}
 
 	// Set particle positions
@@ -267,7 +283,6 @@ void spec_inject_particles(t_species *spec, const int range[][2])
 
 	// Set momentum of injected particles
 	spec_set_u(spec, start, spec->main_vector.size - 1);
-
 }
 
 void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc[],
@@ -351,12 +366,6 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	// Reset moving window information
 	spec->moving_window = false;
 	spec->n_move = 0;
-}
-
-void spec_adjacent_vectors(t_species *spec, t_particle_vector *upper, t_particle_vector *lower)
-{
-	spec->adj_spec[1] = upper;
-	spec->adj_spec[0] = lower;
 }
 
 void spec_delete(t_species *spec)
@@ -621,6 +630,79 @@ void dep_current_zamb(int ix, int iy, int di, int dj, float x0, float y0, float 
 }
 
 /*********************************************************************************************
+ Sort
+ *********************************************************************************************/
+
+void spec_sort(t_species *spec, const int bin_size)
+{
+	const int n_bins_x = ceil((float) spec->nx[0] / bin_size);
+	const int n_bins_y = ceil((float) spec->nx[1] / bin_size);
+	t_part **bins = malloc(n_bins_y * n_bins_x * sizeof(t_part*));
+	int *count = malloc(n_bins_y * n_bins_x * sizeof(int));
+	int *prefix_sum = malloc(n_bins_y * n_bins_x * sizeof(int));
+	int *temp = malloc(n_bins_y * n_bins_x * sizeof(int));
+
+	int idx, ix, iy;
+
+	for (int i = 0; i < n_bins_x * n_bins_y; i++)
+		count[i] = 0;
+
+	// Count the number of elements in each bin
+	for (int i = 0; i < spec->main_vector.size; i++)
+		if (!spec->main_vector.data[i].safe_to_delete)
+		{
+			ix = spec->main_vector.data[i].ix / bin_size;
+			iy = spec->main_vector.data[i].iy / bin_size;
+
+			count[ix + iy * n_bins_x]++;
+		}
+
+	// Allocate the bins
+	for (int i = 0; i < n_bins_x * n_bins_y; i++)
+		bins[i] = malloc(count[i] * sizeof(t_part));
+
+	memcpy(prefix_sum, count, n_bins_y * n_bins_x * sizeof(int));
+	memset(count, 0, n_bins_y * n_bins_x * sizeof(int));
+
+	// Prefix sum to find the initial index of each bin
+	for (int n = 1; n < n_bins_x * n_bins_y; n *= 2)
+	{
+		for (int i = 0; i < n_bins_x * n_bins_y - n; i++)
+			temp[i] = prefix_sum[i];
+
+		for (int i = n; i < n_bins_x * n_bins_y; i++)
+			prefix_sum[i] += temp[i - n];
+	}
+
+	// Distribute the elements to the bins
+	for (int i = 0; i < spec->main_vector.size; i++)
+		if (!spec->main_vector.data[i].safe_to_delete)
+		{
+			ix = spec->main_vector.data[i].ix / bin_size;
+			iy = spec->main_vector.data[i].iy / bin_size;
+			idx = count[ix + iy * n_bins_x];
+			count[ix + iy * n_bins_x]++;
+
+			bins[ix + iy * n_bins_x][idx] = spec->main_vector.data[i];
+		}
+
+	for (int i = 0; i < n_bins_x * n_bins_y; i++)
+		for (int k = 0; k < count[i]; k++)
+			spec->main_vector.data[prefix_sum[i] + k - count[i]] = bins[i][k];
+
+	spec->main_vector.size = prefix_sum[n_bins_x * n_bins_y - 1];
+
+	// Cleaning
+	for (int i = 0; i < n_bins_x * n_bins_y; i++)
+		free(bins[i]);
+
+	free(bins);
+	free(prefix_sum);
+	free(count);
+	free(temp);
+}
+
+/*********************************************************************************************
  Particle advance
  *********************************************************************************************/
 
@@ -778,10 +860,6 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 
 		qvz = spec->q * uz * rg;
 
-		// deposit current using Eskirepov method
-//		dep_current_esk(spec->main_vector.data[i].ix, spec->main_vector.data[i].iy, di, dj, spec->main_vector.data[i].x, spec->main_vector.data[i].y, x1, y1, qnx, qny,
-//				qvz, current);
-
 		dep_current_zamb(spec->main_vector.data[i].ix, spec->main_vector.data[i].iy - limits_y[0],
 				di, dj, spec->main_vector.data[i].x, spec->main_vector.data[i].y, dx, dy, qnx, qny,
 				qvz, current);
@@ -791,7 +869,19 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 		spec->main_vector.data[i].y = y1;
 		spec->main_vector.data[i].ix += di;
 		spec->main_vector.data[i].iy += dj;
+	}
+}
 
+void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *lower_spec,
+		int limits_y[2])
+{
+	const int nx0 = spec->nx[0];
+	const int nx1 = spec->nx[1];
+
+	#pragma acc set device_num(0)
+
+	for(int i = 0; i < spec->main_vector.size; i++)
+	{
 		//Check if the particle is in the correct region
 		int iy = spec->main_vector.data[i].iy;
 
@@ -819,12 +909,12 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 		//Verify if the particle is still in the correct region. If not send the particle to the correct one
 		if (iy < limits_y[0])
 		{
-			spec_add_to_temp_vector(spec->adj_spec[0], spec->main_vector.data[i]);
+			spec_add_to_temp_vector(&lower_spec->temp_buffer[1], spec->main_vector.data[i]);
 			spec->main_vector.data[i].safe_to_delete = true;
 
 		} else if (iy >= limits_y[1])
 		{
-			spec_add_to_temp_vector(spec->adj_spec[1], spec->main_vector.data[i]);
+			spec_add_to_temp_vector(&upper_spec->temp_buffer[0], spec->main_vector.data[i]);
 			spec->main_vector.data[i].safe_to_delete = true;
 		}
 	}
@@ -839,11 +929,7 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 		spec_inject_particles(spec, range);
 	}
 
-	#pragma oss atomic
-	_spec_npush += spec->main_vector.size;
-
-	#pragma oss atomic
-	_spec_time += timer_interval_seconds(t0, timer_ticks());
+	//if(spec->iter % 20 == 0) spec_sort(spec, 4);
 }
 
 /*********************************************************************************************

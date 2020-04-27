@@ -19,7 +19,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	float box[2] = {51.2, 51.2};
 
 	// Diagnostic frequency
-	int ndump = 50;
+	int ndump = 500;
 
 	// Initialize particles
 	const int n_species = 2;
@@ -40,6 +40,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	// Initialize Simulation data
 	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "larger_weibel", n_regions);
 
+	free(species);
 }
 
 void sim_report(t_simulation *sim)

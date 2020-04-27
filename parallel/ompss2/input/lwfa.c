@@ -14,14 +14,14 @@ void sim_init(t_simulation *sim, int n_regions)
 
 	// Time step
 	float dt = 0.014;
-	float tmax = 20.314;
+	float tmax = 28; //20.314;
 
 	// Simulation box
 	int nx[2] = {2000, 256};
 	float box[2] = {40.0, 51.2};
 
 	// Diagnostic frequency
-	int ndump = 50;
+	int ndump = 2000;
 
 	// Initialize particles
 	const int n_species = 1;
@@ -61,6 +61,7 @@ void sim_report(t_simulation *sim)
 	sim_report_emf(sim);
 	sim_report_charge(sim);
 	sim_report_energy(sim);
+	sim_region_timings(sim);
 
 	// Bx, By, Bz
 //	emf_report( &sim->emf, BFLD, 0 );

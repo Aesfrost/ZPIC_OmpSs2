@@ -1,12 +1,11 @@
 # GCC options
-CC = mcc
-CFLAGS = -O3 -std=c99 --ompss-2 -g
+CC = pgimcc
+CFLAGS = --ompss-2 -O3
 
 INCLUDES = -I/home/nicolas/ompss-2/include/
 LDFLAGS = -lm
 
 SOURCE = current.c emf.c particles.c random.c timer.c main.c simulation.c zdf.c csv_handler.c region.c 
-
 TARGET = zpic
 
 all : $(SOURCE) $(TARGET)
@@ -21,4 +20,4 @@ $(TARGET) : $(SOURCE)
 
 clean:
 	@touch $(TARGET) 
-	rm -f $(TARGET)
+	rm -f $(TARGET) *.o
