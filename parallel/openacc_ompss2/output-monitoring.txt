@@ -1,0 +1,77 @@
+
++-----------------------------+
+|       CPU STATISTICS        |
++-----------------------------+
+|   CPU(id) - Activeness(%)   |
++-----------------------------+
+CPU(0)   -  93.25% | CPU(1)   -  93.39%
+CPU(2)   -  92.91% | CPU(3)   -  93.38%
+CPU(4)   -  93.24% | CPU(5)   -  93.29%
+CPU(6)   -  93.27% | CPU(7)   -  93.19%
+CPU(8)   -  92.84% | CPU(9)   -  93.09%
+CPU(10)  -  92.64% | CPU(11)  -  98.16%
++-----------------------------+
+
+
++-----------------------------+
+|    CPU Usage Predictions    |
++-----------------------------+
+  MEAN ACCURACY: 86.41%
++-----------------------------+
+
+
++-----------------------------+
+|       TASK STATISTICS       |
++-----------------------------+
+STATS   MONITORING   TASK-TYPE (INSTANCES)      Current Reduction X (16032)
+STATS   MONITORING   UNITARY COST AVG / STDEV   12.35000   / 9.54074   
+STATS   MONITORING   PREDICTION ACCURACY (%)    67.40%    
++-----------------------------+
+STATS   MONITORING   TASK-TYPE (INSTANCES)      Current Reduction Y (16032)
+STATS   MONITORING   UNITARY COST AVG / STDEV   119.00000  / 546.09960 
+STATS   MONITORING   PREDICTION ACCURACY (%)    71.09%    
++-----------------------------+
+STATS   MONITORING   TASK-TYPE (INSTANCES)      Current Reset (16533)
+STATS   MONITORING   UNITARY COST AVG / STDEV   1116.90000 / 706.42974 
+STATS   MONITORING   PREDICTION ACCURACY (%)    41.40%    
++-----------------------------+
+STATS   MONITORING   TASK-TYPE (INSTANCES)      EMF Advance (16032) 
+STATS   MONITORING   UNITARY COST AVG / STDEV   111.60000  / 1119.84700
+STATS   MONITORING   PREDICTION ACCURACY (%)    84.67%    
++-----------------------------+
+STATS   MONITORING   TASK-TYPE (INSTANCES)      EMF Update GC (16032)
+STATS   MONITORING   UNITARY COST AVG / STDEV   210.50000  / 466.59970 
+STATS   MONITORING   PREDICTION ACCURACY (%)    50.73%    
++-----------------------------+
+STATS   MONITORING   TASK-TYPE (INSTANCES)      Spec Advance (32064)
+STATS   MONITORING   UNITARY COST AVG / STDEV   91268.60000 / 22681.32883
+STATS   MONITORING   PREDICTION ACCURACY (%)    85.10%    
++-----------------------------+
+STATS   MONITORING   TASK-TYPE (INSTANCES)      Spec PP (32064)     
+STATS   MONITORING   UNITARY COST AVG / STDEV   5375.20000 / 4145.74589
+STATS   MONITORING   PREDICTION ACCURACY (%)    80.41%    
++-----------------------------+
+STATS   MONITORING   TASK-TYPE (INSTANCES)      Spec Post Processing (GPU) (1002)
+STATS   MONITORING   UNITARY COST AVG / STDEV   310460.00000 / 114310.98262
+STATS   MONITORING   PREDICTION ACCURACY (%)    73.99%    
++-----------------------------+
+STATS   MONITORING   TASK-TYPE (INSTANCES)      Spec Update (32064) 
+STATS   MONITORING   UNITARY COST AVG / STDEV   3772.75000 / 10795.50601
+STATS   MONITORING   PREDICTION ACCURACY (%)    42.83%    
++-----------------------------+
+STATS   MONITORING   TASK-TYPE (INSTANCES)      Spec Update (GPU) (1002)
+STATS   MONITORING   UNITARY COST AVG / STDEV   11432.30000 / 39854.35213
+STATS   MONITORING   PREDICTION ACCURACY (%)    6.34%     
++-----------------------------+
+
+
++-----------------------------+
+|       WORKLOADS (μs)        |
++-----------------------------+
+Instantiated Workload (181864)          3308775574.90 μs
+Blocked Workload (0)                    0.00 μs
+Ready Workload (3006)                   0.00 μs
+Executing Workload (1)                  0.00 μs
+Finished Workload (178857)              3308775574.90 μs
++-----------------------------+
+
