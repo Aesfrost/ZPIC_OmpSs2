@@ -4,19 +4,19 @@ ZPIC is a 2D plasma simulator using the widely used PIC (particle-in-cell) algor
 
 ## Features 
 
-###OmpSs:
+### OmpSs:
 - Rows decomposition
 - Parallelism based on tasks and data dependencies (OmpSs-2)
 - No taskwait (or synchronism) between iterations of the simulation (OmpSs-2)
 
-###OpenAcc:
+### OpenAcc:
 - Based on the serial version
 - Almost all computation are done in the GPU
 - Particles use a Structure of Array (SoA) to improve GPU performance
 - Bucket Sort after 15 iterations
 
 
-###OmpSs + OpenAcc (Under development):
+### OmpSs + OpenAcc (Under development):
 - Rows decomposition
 - Parallelism based on tasks and data dependencies (OmpSs-2)
 - No taskwait (or synchronism) between iterations of the simulation (OmpSs-2)
@@ -47,22 +47,22 @@ Also, ZPIC monitors the EM fields' energy and particles' energy.
 All output files are in the .csv format with ";" as delimiter. 
 
 ## Compilation and Execution
-###OmpSs:
+### OmpSs:
 ```
 make
 ./zpic <Number of Regions>
 ```
-###OpenAcc/Serial:
+### OpenAcc/Serial:
 ```
 make
 ./zpic
 ```
-###OmpSs + OpenAcc (under development):
+### OmpSs + OpenAcc (under development):
 ```
 make
 ./zpic <Number of Regions> <Percentage of regions dedicated to GPU> <Number of GPU regions>
 ```
 
-###Compilation requirements:
+### Compilation requirements:
 - [Nanos6 Runtime](https://github.com/bsc-pm/nanos6)
 - [Mercurium Compiler](https://github.com/bsc-pm/mcxx)
