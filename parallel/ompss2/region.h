@@ -19,6 +19,8 @@ typedef struct Region
 {
 	int id;
 
+	double iter_time;
+
 	int nx[2]; // Region size
 	int limits_y[2]; // Limits of the region in y
 
@@ -46,5 +48,8 @@ void region_advance(t_region *region); // Recursive call to other regions
 
 void region_charge_report(const t_region *region, t_part_data *charge, int i_spec);
 void region_emf_report(const t_region *region, t_fld *restrict E_mag, t_fld *restrict B_mag, const int nrow);
+void region_report_iter_time(const t_region *region, double time[], int i);
+
+int get_n_regions();
 
 #endif

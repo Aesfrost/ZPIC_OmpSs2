@@ -11,6 +11,7 @@
 #error This version of ZDF does not (yet) support systems that are not little endian.
 #endif
 
+/*
 #if __SIZEOF_FLOAT__ != 4
 #error This version of ZDF only support systems were sizeof(float) = 4
 #endif
@@ -18,7 +19,7 @@
 #if __SIZEOF_DOUBLE__ != 8
 #error This version of ZDF only support systems were sizeof(double) = 8
 #endif
-
+*/
 
 #include <stdint.h>
 #include <stdio.h>

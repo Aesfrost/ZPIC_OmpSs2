@@ -155,6 +155,10 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	file = fopen(filename, "w+");
 	fclose(file);
 
+	sprintf(filename, "output/%s/region_timings.csv", sim->name);
+	file = fopen(filename, "w+");
+	fclose(file);
+
 	// Cleaning
 	for (int n = 0; n < n_species; ++n)
 		spec_delete(&species[n]);
@@ -324,3 +328,29 @@ void sim_report_emf(t_simulation *sim)
 	free(B_magnitude);
 }
 
+void sim_region_timings(t_simulation *sim)
+{
+	char filename[128];
+
+	sprintf(filename, "output/%s/region_timings.csv", sim->name);
+	FILE *file = fopen(filename, "a+");
+
+	if (file)
+	{
+		t_region *restrict region = sim->first_region;
+
+		while(region->next->id != 0)
+		{
+			fprintf(file, "%lf;", region->iter_time);
+			region = region->next;
+		}
+
+		fprintf(file, "%lf\n", region->iter_time);
+		fclose(file);
+
+	} else
+	{
+		printf("Error on open file: %s", filename);
+		exit(1);
+	}
+}

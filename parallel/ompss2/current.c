@@ -62,7 +62,7 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 
 	// Zero initial current
 	// This is only relevant for diagnostics, current is always zeroed before deposition
-	current_zero(current);
+	//current_zero(current);
 }
 
 void current_delete(t_current *current)

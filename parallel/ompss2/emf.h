@@ -83,14 +83,25 @@ void emf_overlap_zone(t_emf *emf, t_emf *upper);
 void emf_add_laser(t_emf *const emf, t_emf_laser *laser, int offset_y);
 void div_corr_x(t_emf *emf);
 
-void emf_advance(t_emf *emf, const t_current *current);
 void emf_move_window(t_emf *emf);
 void emf_update_gc_x(t_emf *emf);
-void emf_update_gc_y(t_emf *emf);
 
 double emf_time(void);
 void emf_report(const t_emf *emf, const char field, const char fc);
 void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag,
 		t_fld *restrict B_mag, const int nrow, const int offset);
+
+// CPU Tasks
+#pragma oss task in(current->J_buf[0; current->total_size]) \
+inout(emf->E_buf[0; emf->total_size]) inout(emf->B_buf[0; emf->total_size]) \
+label(EMF Advance)
+void emf_advance(t_emf *emf, const t_current *current);
+
+#pragma oss task inout(emf->B_buf[0; emf->overlap]) \
+inout(emf->B_upper[-emf->gc[0][0]; emf->overlap]) \
+inout(emf->E_buf[0; emf->overlap]) \
+inout(emf->E_upper[-emf->gc[0][0]; emf->overlap]) \
+label(EMF Update GC)
+void emf_update_gc_y(t_emf *emf);
 
 #endif

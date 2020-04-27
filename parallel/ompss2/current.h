@@ -61,17 +61,30 @@ typedef struct {
 
 void current_new(t_current *current, int nx[], t_fld box[], float dt);
 void current_delete(t_current *current);
-void current_zero(t_current *current);
 void current_overlap_zone(t_current *current, t_current *upper_current);
-//void current_update(t_current *current);
 
-void current_reduction_y(t_current *current); // Each region only update the zone in the top edge
-void current_reduction_x(t_current *current);
-void current_gc_update_y(t_current *current);
-void current_smooth_x(t_current *current);
 //void current_smooth_y(t_current *current);
-
 void current_report(const t_current *current, const char jc);
 void current_smooth(t_current *const current);
+
+// CPU Tasks
+#pragma oss task out(current->J_buf[0; current->total_size]) label(Current Reset)
+void current_zero(t_current *current);
+
+#pragma oss task inout(current->J_buf[0; current->overlap_zone]) \
+inout(current->J_upper[-current->gc[0][0]; current->overlap_zone]) \
+label(Current Reduction Y)
+void current_reduction_y(t_current *current); // Each region only update the zone in the top edge
+
+#pragma oss task inout(current->J_buf[0; current->total_size]) label(Current Reduction X)
+void current_reduction_x(t_current *current);
+
+#pragma oss task inout(current->J_buf[0; current->overlap_zone]) \
+inout(current->J_upper[-current->gc[0][0]; current->overlap_zone]) \
+label(Current Update GC)
+void current_gc_update_y(t_current *current);
+
+#pragma oss task inout(current->J_buf[0; current->total_size]) label(Current Smooth X)
+void current_smooth_x(t_current *current);
 
 #endif

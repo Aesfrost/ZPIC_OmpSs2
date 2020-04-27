@@ -18,7 +18,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	float box[2] = {51.2, 51.2};
 
 	// Diagnostic frequency
-	int ndump = 50;
+	int ndump = 500;
 
 	// Initialize particles
 	const int n_species = 2;
@@ -47,6 +47,7 @@ void sim_report(t_simulation *sim)
 	sim_report_emf(sim);
 	sim_report_charge(sim);
 	sim_report_energy(sim);
+	sim_region_timings(sim);
 
 	// Bx, By, Bz
 //	emf_report(&sim->emf, BFLD, 0);
