@@ -9,11 +9,20 @@ ZPIC is a 2D plasma simulator using the widely used PIC (particle-in-cell) algor
 - Parallelism based on tasks and data dependencies (OmpSs-2)
 - No taskwait (or synchronism) between iterations of the simulation (OmpSs-2)
 
+### OmpSs@OpenAcc:
+- Rows decomposition
+- Parallelism based on tasks and data dependencies (OmpSs-2)
+- No taskwait (or synchronism) between iterations of the simulation (OmpSs-2)
+- The OpenAcc kernels are integrated into OmpSs tasks
+- Hybrid structure for the particles (Structure of Arrays (SoA) for GPUs and Array of Structure (AoS) for CPU)
+- Manual allocation of regions to be execute in the GPU (based on a percentage of the total number of regions)
+- Bucket Sort every 15 iterations
+
 ### OpenAcc:
 - Based on the serial version
 - Almost all computation are done in the GPU
 - Particles use a Structure of Array (SoA) to improve GPU performance
-- Bucket Sort after 15 iterations
+- Bucket Sort every 15 iterations
 
 ## Unsupported Features
 In the current version, the parallel ZPIC doesn't support:
@@ -46,6 +55,12 @@ make
 ```
 make
 ./zpic
+```
+
+### OmpSs@OpenAcc:
+```
+make
+./zpic <Number of Regions> <Percentage of regions dedicated to GPU> <Number of GPU regions>
 ```
 ### Compilation requirements:
 - [Nanos6 Runtime](https://github.com/bsc-pm/nanos6)
