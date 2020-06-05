@@ -55,7 +55,7 @@ int main(int argc, const char *argv[])
 	{
 //		if(n == 2) break;
 
-		fprintf(stderr, "n = %i, t = %f\n", n, t);
+//		fprintf(stderr, "n = %i, t = %f\n", n, t);
 
 //		if (report(n, sim.ndump))
 //		{

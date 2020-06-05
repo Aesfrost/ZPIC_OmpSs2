@@ -82,7 +82,7 @@ void convert_vector(t_particle_vector *restrict vector, enum vector_type final_t
 				vector->uz = malloc(vector->size_max * sizeof(t_fld));
 				vector->safe_to_delete = malloc(vector->size_max * sizeof(bool));
 
-				for(int i = 0; i < vector->size_max; i++)
+				for(int i = 0; i < vector->size; i++)
 				{
 					vector->ix[i] = vector->part[i].ix;
 					vector->iy[i] = vector->part[i].iy;
@@ -101,7 +101,7 @@ void convert_vector(t_particle_vector *restrict vector, enum vector_type final_t
 
 				vector->part = malloc(vector->size_max * sizeof(t_part));
 
-				for(int i = 0; i < vector->size_max; i++)
+				for(int i = 0; i < vector->size; i++)
 				{
 					vector->part[i].ix = vector->ix[i];
 					vector->part[i].iy = vector->iy[i];
@@ -542,7 +542,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	spec->energy = 0;
 
 	// Initialize particle buffer
-	spec->main_vector.size_max = npc * region_size * nx[0];
+	spec->main_vector.size_max = (npc * region_size * nx[0] / 1024 + 1) * 1024;
 	spec->main_vector.part = malloc(spec->main_vector.size_max * sizeof(t_part));
 	spec->main_vector.size = 0;
 	spec->main_vector.type = AoS;
@@ -550,7 +550,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	// Initialize temp buffer
 	for (i = 0; i < 2; i++)
 	{
-		spec->temp_buffer[i].size_max = npc * nx[0];
+		spec->temp_buffer[i].size_max = (npc * nx[0] / 1024 + 1) * 1024;
 		spec->temp_buffer[i].part = malloc(spec->temp_buffer[i].size_max * sizeof(t_part));
 		spec->temp_buffer[i].size = 0;
 		spec->temp_buffer[i].type = AoS;
@@ -601,6 +601,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	// Sort
 	spec->n_bins_x = ceil((float) spec->nx[0] / BIN_SIZE);
 	spec->n_bins_y = ceil((float) spec->nx[1] / BIN_SIZE);
+
 }
 
 void spec_delete(t_species *spec)
@@ -891,74 +892,74 @@ void dep_current_zamb(int ix, int iy, int di, int dj, float x0, float y0, float 
  Sort
  *********************************************************************************************/
 
-void spec_sort(t_species *spec, const int bin_size)
-{
-	const int n_bins_x = ceil((float) spec->nx[0] / bin_size);
-	const int n_bins_y = ceil((float) spec->nx[1] / bin_size);
-	t_part **bins = malloc(n_bins_y * n_bins_x * sizeof(t_part*));
-	int *count = malloc(n_bins_y * n_bins_x * sizeof(int));
-	int *prefix_sum = malloc(n_bins_y * n_bins_x * sizeof(int));
-	int *temp = malloc(n_bins_y * n_bins_x * sizeof(int));
-
-	int idx, ix, iy;
-
-	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-		count[i] = 0;
-
-	// Count the number of elements in each bin
-	for (int i = 0; i < spec->main_vector.size; i++)
-		if (!spec->main_vector.part[i].safe_to_delete)
-		{
-			ix = spec->main_vector.part[i].ix / bin_size;
-			iy = spec->main_vector.part[i].iy / bin_size;
-
-			count[ix + iy * n_bins_x]++;
-		}
-
-	// Allocate the bins
-	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-		bins[i] = malloc(count[i] * sizeof(t_part));
-
-	memcpy(prefix_sum, count, n_bins_y * n_bins_x * sizeof(int));
-	memset(count, 0, n_bins_y * n_bins_x * sizeof(int));
-
-	// Prefix sum to find the initial index of each bin
-	for (int n = 1; n < n_bins_x * n_bins_y; n *= 2)
-	{
-		for (int i = 0; i < n_bins_x * n_bins_y - n; i++)
-			temp[i] = prefix_sum[i];
-
-		for (int i = n; i < n_bins_x * n_bins_y; i++)
-			prefix_sum[i] += temp[i - n];
-	}
-
-	// Distribute the elements to the bins
-	for (int i = 0; i < spec->main_vector.size; i++)
-		if (!spec->main_vector.part[i].safe_to_delete)
-		{
-			ix = spec->main_vector.part[i].ix / bin_size;
-			iy = spec->main_vector.part[i].iy / bin_size;
-			idx = count[ix + iy * n_bins_x];
-			count[ix + iy * n_bins_x]++;
-
-			bins[ix + iy * n_bins_x][idx] = spec->main_vector.part[i];
-		}
-
-	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-		for (int k = 0; k < count[i]; k++)
-			spec->main_vector.part[prefix_sum[i] + k - count[i]] = bins[i][k];
-
-	spec->main_vector.size = prefix_sum[n_bins_x * n_bins_y - 1];
-
-	// Cleaning
-	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-		free(bins[i]);
-
-	free(bins);
-	free(prefix_sum);
-	free(count);
-	free(temp);
-}
+//void spec_sort(t_species *spec, const int bin_size)
+//{
+//	const int n_bins_x = ceil((float) spec->nx[0] / bin_size);
+//	const int n_bins_y = ceil((float) spec->nx[1] / bin_size);
+//	t_part **bins = malloc(n_bins_y * n_bins_x * sizeof(t_part*));
+//	int *count = malloc(n_bins_y * n_bins_x * sizeof(int));
+//	int *prefix_sum = malloc(n_bins_y * n_bins_x * sizeof(int));
+//	int *temp = malloc(n_bins_y * n_bins_x * sizeof(int));
+//
+//	int idx, ix, iy;
+//
+//	for (int i = 0; i < n_bins_x * n_bins_y; i++)
+//		count[i] = 0;
+//
+//	// Count the number of elements in each bin
+//	for (int i = 0; i < spec->main_vector.size; i++)
+//		if (!spec->main_vector.part[i].safe_to_delete)
+//		{
+//			ix = spec->main_vector.part[i].ix / bin_size;
+//			iy = spec->main_vector.part[i].iy / bin_size;
+//
+//			count[ix + iy * n_bins_x]++;
+//		}
+//
+//	// Allocate the bins
+//	for (int i = 0; i < n_bins_x * n_bins_y; i++)
+//		bins[i] = malloc(count[i] * sizeof(t_part));
+//
+//	memcpy(prefix_sum, count, n_bins_y * n_bins_x * sizeof(int));
+//	memset(count, 0, n_bins_y * n_bins_x * sizeof(int));
+//
+//	// Prefix sum to find the initial index of each bin
+//	for (int n = 1; n < n_bins_x * n_bins_y; n *= 2)
+//	{
+//		for (int i = 0; i < n_bins_x * n_bins_y - n; i++)
+//			temp[i] = prefix_sum[i];
+//
+//		for (int i = n; i < n_bins_x * n_bins_y; i++)
+//			prefix_sum[i] += temp[i - n];
+//	}
+//
+//	// Distribute the elements to the bins
+//	for (int i = 0; i < spec->main_vector.size; i++)
+//		if (!spec->main_vector.part[i].safe_to_delete)
+//		{
+//			ix = spec->main_vector.part[i].ix / bin_size;
+//			iy = spec->main_vector.part[i].iy / bin_size;
+//			idx = count[ix + iy * n_bins_x];
+//			count[ix + iy * n_bins_x]++;
+//
+//			bins[ix + iy * n_bins_x][idx] = spec->main_vector.part[i];
+//		}
+//
+//	for (int i = 0; i < n_bins_x * n_bins_y; i++)
+//		for (int k = 0; k < count[i]; k++)
+//			spec->main_vector.part[prefix_sum[i] + k - count[i]] = bins[i][k];
+//
+//	spec->main_vector.size = prefix_sum[n_bins_x * n_bins_y - 1];
+//
+//	// Cleaning
+//	for (int i = 0; i < n_bins_x * n_bins_y; i++)
+//		free(bins[i]);
+//
+//	free(bins);
+//	free(prefix_sum);
+//	free(count);
+//	free(temp);
+//}
 
 /*********************************************************************************************
  Particle advance

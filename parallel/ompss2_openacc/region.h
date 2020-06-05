@@ -21,6 +21,8 @@ typedef struct Region
 	bool enable_gpu;
 	double iter_time;
 
+	int iter;
+
 	int nx[2]; // Region size
 	int limits_y[2]; // Limits of the region in y
 

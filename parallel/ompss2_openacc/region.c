@@ -29,13 +29,15 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 	region->id = id;
 	region->prev = prev_region;
 
-	int step = floor((float) gpu_percentage * n_regions / n_gpu_regions);
+	region->iter = 0;
 
-	if(region->id < n_gpu_regions * step)
+	int gpu_step = floor((float) gpu_percentage * n_regions / n_gpu_regions); // The number of regions to merge
+
+	if(region->id < n_gpu_regions * gpu_step)
 	{
 		region->limits_y[0] = floor((float) id * nx[1] / n_regions);
 
-		id += step - 1;
+		id += gpu_step - 1;
 		region->limits_y[1] = floor((float) (id + 1) * nx[1] / n_regions);
 		if(region->limits_y[1] > nx[1]) region->limits_y[1] = nx[1];
 
@@ -47,10 +49,6 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 		region->limits_y[1] = floor((float) (id + 1) * nx[1] / n_regions);
 		region->enable_gpu = false;
 	}
-
-//	region->limits_y[0] = floor((float) id * nx[1] / n_regions);
-//	region->limits_y[1] = floor((float) (id + 1) * nx[1] / n_regions);
-//	region->enable_gpu = true; //(id < n_regions / 3);
 
 	region->nx[0] = nx[0];
 	region->nx[1] = region->limits_y[1] - region->limits_y[0];
@@ -171,8 +169,7 @@ void region_set_moving_window(t_region *region)
 // Add a laser to all the regions
 void region_add_laser(t_region *region, t_emf_laser *laser)
 {
-	if (region->id != 0) while (region->id != 0)
-		region = region->next;
+	if (region->id != 0) while (region->id != 0) region = region->next;
 
 	t_region *p = region;
 	do
@@ -217,11 +214,13 @@ void region_delete(t_region *region)
 /*********************************************************************************************
  Advance
  *********************************************************************************************/
-
 // Spec advance for all the regions (recursively)
 void region_spec_advance(t_region *region)
 {
 	current_zero(&region->local_current);
+
+	// Advance iteration count
+	region->iter++;
 
 	if (region->enable_gpu)
 	{
@@ -229,7 +228,7 @@ void region_spec_advance(t_region *region)
 		{
 			spec_advance_openacc(&region->species[i], &region->local_emf, &region->local_current,
 					region->limits_y);
-			spec_post_processing_openacc(&region->species[i], &region->next->species[i],
+			spec_post_processing_1_openacc(&region->species[i], &region->next->species[i],
 					&region->prev->species[i], region->limits_y);
 		}
 	} else
@@ -249,8 +248,15 @@ void region_spec_advance(t_region *region)
 // Update the particle vector in all the regions (recursively)
 void region_spec_update(t_region *region)
 {
-	if(region->enable_gpu) for (int i = 0; i < region->n_species; i++)
-			spec_update_main_vector_openacc(&region->species[i], region->limits_y);
+	if(region->enable_gpu)
+	{
+		for (int i = 0; i < region->n_species; i++)
+		{
+			spec_post_processing_2_openacc(&region->species[i], region->limits_y);
+			if(region->iter % SORT_ITER == 0) spec_sort_openacc(&region->species[i], region->limits_y);
+		}
+	}
+
 	else for (int i = 0; i < region->n_species; i++)
 			spec_update_main_vector(&region->species[i]);
 

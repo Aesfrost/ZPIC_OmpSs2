@@ -1,9 +1,9 @@
 # GCC options
 CC = pgimcc
-CFLAGS = --ompss-2 -O3
+CFLAGS = --ompss-2 -O3 
 
 #CC = pgcc
-#CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -Mcuda=lineinfo
+#CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -Mcuda=lineinfo -g
 
 INCLUDES = -I/home/nicolas/ompss-2/include/
 LDFLAGS = -lm
@@ -16,7 +16,7 @@ all : $(TARGET)
 
 valgrind: $(SOURCE) $(KERNELS)
 	gcc $^ $(INCLUDES) -o $(TARGET) -O3 -std=c99 -g $(LDFLAGS) 
-	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=log.txt ./$(TARGET) 2
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=log.txt ./$(TARGET) 2 0.5 1
 
 $(TARGET) : $(KERNELS:.c=.o) $(SOURCE:.c=.o)
 	$(CC) $^ -o $@ $(CFLAGS) $(INCLUDES) $(LDFLAGS)
