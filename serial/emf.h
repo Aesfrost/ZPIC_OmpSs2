@@ -73,20 +73,16 @@ double emf_get_energy(t_emf *emf);
 
 void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt);
 void emf_delete(t_emf *emf);
-void emf_report(const t_emf *emf, const char field, const char fc);
-
 void emf_add_laser(t_emf *const emf, t_emf_laser *laser);
+void emf_set_moving_window(t_emf *emf);
+
 
 void emf_advance(t_emf *emf, const t_current *current);
-
 void emf_move_window(t_emf *emf);
-
 void emf_update_gc(t_emf *emf);
 
 double emf_time(void);
-
-void emf_set_moving_window(t_emf *emf);
-
+void emf_report(const t_emf *emf, const char field, const char fc, const char path[64]);
 void emf_report_magnitude(const t_emf *emf, const char name[64]);
 
 #endif

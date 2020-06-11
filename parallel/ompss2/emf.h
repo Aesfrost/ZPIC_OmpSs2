@@ -74,9 +74,6 @@ typedef struct {
 
 } t_emf_laser;
 
-//void emf_get_energy(const t_emf *emf, double energy[]);
-double emf_get_energy(t_emf *emf);
-
 void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt);
 void emf_delete(t_emf *emf);
 void emf_overlap_zone(t_emf *emf, t_emf *upper);
@@ -86,8 +83,13 @@ void div_corr_x(t_emf *emf);
 void emf_move_window(t_emf *emf);
 void emf_update_gc_x(t_emf *emf);
 
+// EMF Report
 double emf_time(void);
-void emf_report(const t_emf *emf, const char field, const char fc);
+double emf_get_energy(t_emf *emf);
+void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const int offset,
+		const char field, const char fc);
+void emf_report(const float *restrict global_buffer, const float box[2], const int true_nx[2],
+		const int iter, const float dt, const char field, const char fc, const char path[128]);
 void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag,
 		t_fld *restrict B_mag, const int nrow, const int offset);
 

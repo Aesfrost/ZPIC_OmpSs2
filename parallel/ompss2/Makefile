@@ -1,6 +1,10 @@
-# GCC options
+# PGI options
 CC = pgimcc
 CFLAGS = --ompss-2 -O3
+
+# GCC options
+# CC = mcc
+# CFLAGS = --ompss-2 -O3 -std=c99
 
 INCLUDES = -I/home/nicolas/ompss-2/include/
 LDFLAGS = -lm
@@ -13,7 +17,6 @@ all : $(SOURCE) $(TARGET)
 valgrind: $(SOURCE)
 	gcc $^ $(INCLUDES) -o $(TARGET) -O3 -std=c99 -g $(LDFLAGS) 
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=log.txt ./$(TARGET) 2
-	rm -r *.o
 
 $(TARGET) : $(SOURCE)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LDFLAGS)

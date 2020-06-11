@@ -63,9 +63,10 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt);
 void current_delete(t_current *current);
 void current_overlap_zone(t_current *current, t_current *upper_current);
 
-//void current_smooth_y(t_current *current);
-void current_report(const t_current *current, const char jc);
-void current_smooth(t_current *const current);
+void current_reconstruct_global_buffer(t_current *current, float *global_buffer, const int offset,
+		const int jc);
+void current_report(const float *restrict global_buffer, const int iter_num, const int true_nx[2],
+		const float box[2], const float dt, const char jc, const char path[128]);
 
 // CPU Tasks
 #pragma oss task out(current->J_buf[0; current->total_size]) label(Current Reset)
@@ -86,5 +87,8 @@ void current_gc_update_y(t_current *current);
 
 #pragma oss task inout(current->J_buf[0; current->total_size]) label(Current Smooth X)
 void current_smooth_x(t_current *current);
+
+#pragma oss task inout(current->J_buf[0; current->total_size]) label(Current Smooth Y)
+void current_smooth_y(t_current *current, enum smooth_type type);
 
 #endif

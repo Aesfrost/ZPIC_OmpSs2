@@ -34,7 +34,7 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 	int i;
 
 	// Number of guard cells for linear interpolation
-	int gc[2][2] = {{1, 2}, {1, 2}};
+	int gc[2][2] = { { 1, 2 }, { 1, 2 } };
 
 	// Allocate global arrays
 	size_t size;
@@ -288,21 +288,79 @@ void emf_add_laser(t_emf *const emf, t_emf_laser *laser, int offset_y)
  Diagnostics
  *********************************************************************************************/
 
-void emf_report(const t_emf *emf, const char field, const char fc)
+void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const int offset,
+		const char field, const char fc)
 {
-	int i, j;
-	char vfname[3];
-
-	// Choose field to save
 	t_vfld *restrict f;
+
 	switch (field)
 	{
 		case EFLD:
 			f = emf->E;
-			vfname[0] = 'E';
 			break;
 		case BFLD:
 			f = emf->B;
+			break;
+		default:
+			fprintf(stderr, "Invalid field type selected, returning\n");
+			break;
+	}
+
+	float *restrict p = global_buffer + offset * emf->nx[0];
+
+	switch (fc)
+	{
+		case 0:
+			for (int j = 0; j < emf->nx[1]; j++)
+			{
+				for (int i = 0; i < emf->nx[0]; i++)
+				{
+					p[i] = f[i].x;
+				}
+				p += emf->nx[0];
+				f += emf->nrow;
+			}
+			break;
+		case 1:
+			for (int j = 0; j < emf->nx[1]; j++)
+			{
+				for (int i = 0; i < emf->nx[0]; i++)
+				{
+					p[i] = f[i].y;
+				}
+				p += emf->nx[0];
+				f += emf->nrow;
+			}
+			break;
+		case 2:
+			for (int j = 0; j < emf->nx[1]; j++)
+			{
+				for (int i = 0; i < emf->nx[0]; i++)
+				{
+					p[i] = f[i].z;
+				}
+				p += emf->nx[0];
+				f += emf->nrow;
+			}
+			break;
+		default:
+			fprintf(stderr, "Invalid field component selected, returning\n");
+			return;
+	}
+}
+
+void emf_report(const float *restrict global_buffer, const float box[2], const int true_nx[2],
+		const int iter, const float dt, const char field, const char fc, const char path[128])
+{
+	char vfname[3];
+
+	// Choose field to save
+	switch (field)
+	{
+		case EFLD:
+			vfname[0] = 'E';
+			break;
+		case BFLD:
 			vfname[0] = 'B';
 			break;
 		default:
@@ -310,45 +368,15 @@ void emf_report(const t_emf *emf, const char field, const char fc)
 			return;
 	}
 
-	// Pack the information
-	float *restrict const buf = malloc(emf->nx[0] * emf->nx[1] * sizeof(float));
-	float *restrict p = buf;
 	switch (fc)
 	{
 		case 0:
-			for (j = 0; j < emf->nx[1]; j++)
-			{
-				for (i = 0; i < emf->nx[0]; i++)
-				{
-					p[i] = f[i].x;
-				}
-				p += emf->nx[0];
-				f += emf->nrow;
-			}
 			vfname[1] = '1';
 			break;
 		case 1:
-			for (j = 0; j < emf->nx[1]; j++)
-			{
-				for (i = 0; i < emf->nx[0]; i++)
-				{
-					p[i] = f[i].y;
-				}
-				p += emf->nx[0];
-				f += emf->nrow;
-			}
 			vfname[1] = '2';
 			break;
 		case 2:
-			for (j = 0; j < emf->nx[1]; j++)
-			{
-				for (i = 0; i < emf->nx[0]; i++)
-				{
-					p[i] = f[i].z;
-				}
-				p += emf->nx[0];
-				f += emf->nrow;
-			}
 			vfname[1] = '3';
 			break;
 		default:
@@ -358,54 +386,21 @@ void emf_report(const t_emf *emf, const char field, const char fc)
 	vfname[2] = 0;
 
 	t_zdf_grid_axis axis[2];
-	axis[0] = (t_zdf_grid_axis) {.min = 0.0, .max = emf->box[0], .label = "x_1",
-									.units = "c/\\omega_p"};
+	axis[0] = (t_zdf_grid_axis ) { .min = 0.0, .max = box[0], .label = "x_1", .units = "c/\\omega_p" };
 
-	axis[1] = (t_zdf_grid_axis) {.min = 0.0, .max = emf->box[1], .label = "x_2",
-									.units = "c/\\omega_p"};
+	axis[1] = (t_zdf_grid_axis ) { .min = 0.0, .max = box[1], .label = "x_2", .units = "c/\\omega_p" };
 
-	t_zdf_grid_info info = {.ndims = 2, .label = vfname, .units = "m_e c \\omega_p e^{-1}",
-							.axis = axis};
+	t_zdf_grid_info info = { .ndims = 2, .label = vfname, .units = "m_e c \\omega_p e^{-1}",
+			.axis = axis };
 
-	info.nx[0] = emf->nx[0];
-	info.nx[1] = emf->nx[1];
+	info.nx[0] = true_nx[0];
+	info.nx[1] = true_nx[1];
 
-	t_zdf_iteration iter = {.n = emf->iter, .t = emf->iter * emf->dt, .time_units = "1/\\omega_p"};
+	t_zdf_iteration iteration = { .n = iter, .t = iter * dt, .time_units = "1/\\omega_p" };
 
-	zdf_save_grid(buf, &info, &iter, "/tmp/EMF");
-
-	// free local data
-	free(buf);
+	zdf_save_grid(global_buffer, &info, &iteration, path);
 
 }
-
-//void emf_get_energy(const t_emf *emf, double energy[])
-//{
-//	int i, j;
-//	t_vfld *const restrict E = emf->E;
-//	t_vfld *const restrict B = emf->B;
-//	const int nrow = emf->nrow;
-//
-//	for (i = 0; i < 6; i++)
-//		energy[i] = 0;
-//
-//	for (j = 0; i < emf->nx[1]; j++)
-//	{
-//		for (i = 0; i < emf->nx[0]; i++)
-//		{
-//			energy[0] += E[i + j * nrow].x * E[i + j * nrow].x;
-//			energy[1] += E[i + j * nrow].y * E[i + j * nrow].y;
-//			energy[2] += E[i + j * nrow].z * E[i + j * nrow].z;
-//			energy[3] += B[i + j * nrow].x * B[i + j * nrow].x;
-//			energy[4] += B[i + j * nrow].y * B[i + j * nrow].y;
-//			energy[5] += B[i + j * nrow].z * B[i + j * nrow].z;
-//		}
-//	}
-//
-//	for (i = 0; i < 6; i++)
-//		energy[i] *= 0.5 * emf->dx[0] * emf->dx[1];
-//
-//}
 
 double emf_get_energy(t_emf *emf)
 {
@@ -426,8 +421,8 @@ double emf_get_energy(t_emf *emf)
 	return result * 0.5 * emf->dx[0] * emf->dx[1];
 }
 
-void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag,
-		t_fld *restrict B_mag, const int nrow, const int offset)
+void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag, t_fld *restrict B_mag,
+		const int nrow, const int offset)
 {
 	const unsigned int nrows = emf->nrow;
 	t_vfld *const restrict E = emf->E;
@@ -600,12 +595,12 @@ void emf_move_window(t_emf *emf)
 		t_vfld *const restrict E = emf->E;
 		t_vfld *const restrict B = emf->B;
 
-		const t_vfld zero_fld = {0., 0., 0.};
+		const t_vfld zero_fld = { 0., 0., 0. };
 
 		// Shift data left 1 cell and zero rightmost cells
 		for (j = 0; j < emf->nx[1]; j++)
 		{
-			for (i = -emf->gc[0][0]; i < emf->nx[0]- 1; i++)
+			for (i = -emf->gc[0][0]; i < emf->nx[0] - 1; i++)
 			{
 				E[i + j * nrow] = E[i + j * nrow + 1];
 				B[i + j * nrow] = B[i + j * nrow + 1];

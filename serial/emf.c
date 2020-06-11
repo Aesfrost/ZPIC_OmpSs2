@@ -288,12 +288,10 @@ void emf_add_laser(t_emf *const emf, t_emf_laser *laser)
 }
 
 /*********************************************************************************************
-
  Diagnostics
-
  *********************************************************************************************/
 
-void emf_report(const t_emf *emf, const char field, const char fc)
+void emf_report(const t_emf *emf, const char field, const char fc, const char path[64])
 {
 	int i, j;
 	char vfname[3];
@@ -374,7 +372,7 @@ void emf_report(const t_emf *emf, const char field, const char fc)
 
 	t_zdf_iteration iter = {.n = emf->iter, .t = emf->iter * emf->dt, .time_units = "1/\\omega_p"};
 
-	zdf_save_grid(buf, &info, &iter, "/tmp/EMF");
+	zdf_save_grid(buf, &info, &iter, path);
 
 	// free local data
 	free(buf);
@@ -382,9 +380,7 @@ void emf_report(const t_emf *emf, const char field, const char fc)
 }
 
 /*********************************************************************************************
-
  Field solver
-
  *********************************************************************************************/
 
 void yee_b(t_emf *emf, const float dt)
@@ -586,34 +582,6 @@ void emf_advance(t_emf *emf, const t_current *current)
 	// Update timing information
 	_emf_time += timer_interval_seconds(t0, timer_ticks());
 }
-
-//void emf_get_energy(const t_emf *emf, double energy[])
-//{
-//	int i, j;
-//	t_vfld *const restrict E = emf->E;
-//	t_vfld *const restrict B = emf->B;
-//	const int nrow = emf->nrow;
-//
-//	for (i = 0; i < 6; i++)
-//		energy[i] = 0;
-//
-//	for (j = 0; i < emf->nx[1]; j++)
-//	{
-//		for (i = 0; i < emf->nx[0]; i++)
-//		{
-//			energy[0] += E[i + j * nrow].x * E[i + j * nrow].x;
-//			energy[1] += E[i + j * nrow].y * E[i + j * nrow].y;
-//			energy[2] += E[i + j * nrow].z * E[i + j * nrow].z;
-//			energy[3] += B[i + j * nrow].x * B[i + j * nrow].x;
-//			energy[4] += B[i + j * nrow].y * B[i + j * nrow].y;
-//			energy[5] += B[i + j * nrow].z * B[i + j * nrow].z;
-//		}
-//	}
-//
-//	for (i = 0; i < 6; i++)
-//		energy[i] *= 0.5 * emf->dx[0] * emf->dx[1];
-//
-//}
 
 double emf_get_energy(t_emf *emf)
 {

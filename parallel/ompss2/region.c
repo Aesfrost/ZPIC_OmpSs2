@@ -232,6 +232,14 @@ void region_current_smooth(t_region *region, enum CURRENT_SMOOTH_MODE mode)
 			current_gc_update_y(&region->local_current);
 			break;
 
+		case BINOMIAL_Y:
+			current_smooth_y(&region->local_current, BINOMIAL);
+			break;
+
+		case COMPENSATED_Y:
+			current_smooth_y(&region->local_current, COMPENSATED);
+			break;
+
 		default:
 			break;
 	}
@@ -278,20 +286,21 @@ void region_advance(t_region *region)
 		region_current_smooth(region, CURRENT_UPDATE_GC);
 	}
 
+	if (region->local_current.smooth.ytype != NONE)
+	{
+		for(int i = 0; i < region->local_current.smooth.ylevel; i++)
+		{
+			region_current_smooth(region, BINOMIAL_Y);
+			region_current_smooth(region, CURRENT_UPDATE_GC);
+		}
+
+		if(region->local_current.smooth.ytype == COMPENSATED)
+		{
+			region_current_smooth(region, COMPENSATED_Y);
+			region_current_smooth(region, CURRENT_UPDATE_GC);
+		}
+	}
+
 	region_emf_advance(region, EMF_ADVANCE);
 	region_emf_advance(region, EMF_UPDATE_GC);
-}
-
-/*********************************************************************************************
- Diagnostics
- *********************************************************************************************/
-void region_charge_report(const t_region *region, t_part_data *charge, int i_spec)
-{
-	spec_deposit_charge(&region->species[i_spec], charge);
-}
-
-void region_emf_report(const t_region *region, t_fld *restrict E_mag, t_fld *restrict B_mag,
-		const int nrow)
-{
-	emf_report_magnitude(&region->local_emf, E_mag, B_mag, nrow, region->limits_y[0]);
 }

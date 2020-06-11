@@ -49,16 +49,10 @@ int main(int argc, const char *argv[])
 
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-		
-		//if(n == 2) break;
 		fprintf(stderr, "n = %i, t = %f\n", n, t);
-
 		if (report(n, sim.ndump)) sim_report(&sim);
-
 		sim_iter(&sim);
 	}
-
-	//sim_report(&sim);
 
 	t1 = timer_ticks();
 	fprintf(stderr, "\nSimulation ended.\n\n");

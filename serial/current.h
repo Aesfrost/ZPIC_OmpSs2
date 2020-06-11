@@ -12,7 +12,9 @@
 
 #include "zpic.h"
 
-enum smooth_type { NONE, BINOMIAL, COMPENSATED };
+enum smooth_type {
+	NONE, BINOMIAL, COMPENSATED
+};
 
 typedef struct {
 	enum smooth_type xtype, ytype;
@@ -20,19 +22,19 @@ typedef struct {
 } t_smooth;
 
 typedef struct {
-	
+
 	t_vfld *J;
-	
+
 	t_vfld *J_buf;
-	
+
 	// Grid parameters
 	int nx[2];
 	int nrow;
 	int gc[2][2];
-	
+
 	// Box size
 	t_fld box[2];
-	
+
 	// Cell size
 	t_fld dx[2];
 
@@ -47,14 +49,14 @@ typedef struct {
 
 	// Moving window
 	int moving_window;
-	
+
 } t_current;
 
-void current_new( t_current *current, int nx[], t_fld box[], float dt );
-void current_delete( t_current *current );
-void current_zero( t_current *current );
-void current_update( t_current *current );
-void current_report( const t_current *current, const char jc );
-void current_smooth( t_current* const current );
+void current_new(t_current *current, int nx[], t_fld box[], float dt);
+void current_delete(t_current *current);
+void current_zero(t_current *current);
+void current_update(t_current *current);
+void current_report(const t_current *current, const char jc, const char path[128]);
+void current_smooth(t_current *const current);
 
 #endif

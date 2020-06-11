@@ -785,12 +785,10 @@ void spec_deposit_charge(const t_species *spec, t_part_data *charge)
 }
 
 /*********************************************************************************************
-
  Diagnostics
-
  *********************************************************************************************/
 
-void spec_rep_particles(const t_species *spec)
+void spec_rep_particles(const t_species *spec, const char path[128])
 {
 
 	t_zdf_file part_file;
@@ -809,7 +807,7 @@ void spec_rep_particles(const t_species *spec)
 							.units = (char**) units, .np = spec->np};
 
 	// Create file and add description
-	zdf_part_file_open(&part_file, &info, &iter, "PARTICLES");
+	zdf_part_file_open(&part_file, &info, &iter, path);
 
 	// Add positions and generalized velocities
 	size_t size = (spec->np) * sizeof(float);
@@ -845,7 +843,7 @@ void spec_rep_particles(const t_species *spec)
 	zdf_close_file(&part_file);
 }
 
-void spec_rep_charge(const t_species *spec)
+void spec_rep_charge(const t_species *spec, const char path[128])
 {
 	t_part_data *buf, *charge, *b, *c;
 	size_t size;
@@ -889,7 +887,7 @@ void spec_rep_charge(const t_species *spec)
 
 	t_zdf_iteration iter = {.n = spec->iter, .t = spec->iter * spec->dt, .time_units = "1/\\omega_p"};
 
-	zdf_save_grid(buf, &info, &iter, spec->name);
+	zdf_save_grid(buf, &info, &iter, path);
 
 	free(buf);
 }
@@ -1011,7 +1009,8 @@ void spec_deposit_pha(const t_species *spec, const int rep_type, const int pha_n
 	}
 }
 
-void spec_rep_pha(const t_species *spec, const int rep_type, const int pha_nx[], const float pha_range[][2])
+void spec_rep_pha(const t_species *spec, const int rep_type, const int pha_nx[],
+		const float pha_range[][2], const char path[128])
 {
 
 	char const *const pha_ax_name[] = {"x1", "x2", "x3", "u1", "u2", "u3"};
@@ -1047,28 +1046,28 @@ void spec_rep_pha(const t_species *spec, const int rep_type, const int pha_nx[],
 
 	t_zdf_iteration iter = {.n = spec->iter, .t = spec->iter * spec->dt, .time_units = "1/\\omega_p"};
 
-	zdf_save_grid(buf, &info, &iter, spec->name);
+	zdf_save_grid(buf, &info, &iter, path);
 
 	// Free temp. buffer
 	free(buf);
 
 }
 
-void spec_report(const t_species *spec, const int rep_type, const int pha_nx[], const float pha_range[][2])
+void spec_report(const t_species *spec, const int rep_type, const int pha_nx[], const float pha_range[][2], const char path[128])
 {
 
 	switch (rep_type & 0xF000)
 	{
 		case CHARGE:
-			spec_rep_charge(spec);
+			spec_rep_charge(spec, path);
 			break;
 
 		case PHA:
-			spec_rep_pha(spec, rep_type, pha_nx, pha_range);
+			spec_rep_pha(spec, rep_type, pha_nx, pha_range, path);
 			break;
 
 		case PARTICLES:
-			spec_rep_particles(spec);
+			spec_rep_particles(spec, path);
 			break;
 	}
 
@@ -1110,4 +1109,16 @@ void spec_report_csv(const t_species *spec, const char sim_name[64])
 
 	free(charge);
 	free(buf);
+}
+
+void spec_calculate_energy(t_species *restrict spec)
+{
+	spec->energy = 0;
+
+	for(int i = 0; i < spec->np; i++)
+	{
+		t_part_data usq = spec->part[i].ux * spec->part[i].ux + spec->part[i].uy * spec->part[i].uy + spec->part[i].uz * spec->part[i].uz;
+		t_part_data gamma = sqrtf(1 + usq);
+		spec->energy += usq / (gamma + 1);
+	}
 }

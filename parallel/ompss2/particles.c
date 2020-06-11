@@ -963,109 +963,48 @@ void spec_deposit_charge(const t_species *spec, t_part_data *charge)
  Diagnostics
  *********************************************************************************************/
 
-void spec_rep_particles(const t_species *spec)
+void spec_rep_charge(t_part_data *restrict charge, const int true_nx[2], const t_fld box[2],
+		const int iter_num, const float dt, const bool moving_window, const char path[128])
 {
+	size_t buf_size = true_nx[0] * true_nx[1] * sizeof(t_part_data);
+	t_part_data *restrict buf = malloc(buf_size);
 
-	t_zdf_file part_file;
+	// Correct boundary values
+	// x
+	if (!moving_window) for (int j = 0; j < true_nx[1] + 1; j++)
+		charge[0 + j * (true_nx[0] + 1)] += charge[true_nx[0] + j * (true_nx[0] + 1)];
 
-	int i;
+	// y - Periodic boundaries
+	for (int i = 0; i < true_nx[0] + 1; i++)
+		charge[i] += charge[i + true_nx[1] * (true_nx[0] + 1)];
 
-	const char *quants[] = {"x1", "x2", "u1", "u2", "u3"};
+	t_part_data *restrict b = buf;
+	t_part_data *restrict c = charge;
 
-	const char *units[] = {"c/\\omega_p", "c/\\omega_p", "c", "c", "c"};
-
-	t_zdf_iteration iter = {.n = spec->iter, .t = spec->iter * spec->dt, .time_units = "1/\\omega_p"};
-
-	// Allocate buffer for positions
-
-	t_zdf_part_info info = {.name = (char*) spec->name, .nquants = 5, .quants = (char**) quants,
-							.units = (char**) units, .np = spec->main_vector.size};
-
-	// Create file and add description
-	zdf_part_file_open(&part_file, &info, &iter, "PARTICLES");
-
-	// Add positions and generalized velocities
-	size_t size = (spec->main_vector.size) * sizeof(float);
-	float *data = malloc(size);
-
-	// x1
-	for (i = 0; i < spec->main_vector.size; i++)
-		data[i] = (spec->n_move + spec->main_vector.data[i].ix + spec->main_vector.data[i].x)
-				* spec->dx[0];
-	zdf_part_file_add_quant(&part_file, quants[0], data, spec->main_vector.size);
-
-	// x2
-	for (i = 0; i < spec->main_vector.size; i++)
-		data[i] = (spec->main_vector.data[i].iy + spec->main_vector.data[i].y) * spec->dx[1];
-	zdf_part_file_add_quant(&part_file, quants[1], data, spec->main_vector.size);
-
-	// ux
-	for (i = 0; i < spec->main_vector.size; i++)
-		data[i] = spec->main_vector.data[i].ux;
-	zdf_part_file_add_quant(&part_file, quants[2], data, spec->main_vector.size);
-
-	// uy
-	for (i = 0; i < spec->main_vector.size; i++)
-		data[i] = spec->main_vector.data[i].uy;
-	zdf_part_file_add_quant(&part_file, quants[3], data, spec->main_vector.size);
-
-	// uz
-	for (i = 0; i < spec->main_vector.size; i++)
-		data[i] = spec->main_vector.data[i].uz;
-	zdf_part_file_add_quant(&part_file, quants[4], data, spec->main_vector.size);
-
-	free(data);
-
-	zdf_close_file(&part_file);
-}
-
-void spec_rep_charge(const t_species *spec)
-{
-	t_part_data *buf, *charge, *b, *c;
-	size_t size;
-	int i, j;
-
-	// Add 1 guard cell to the upper boundary
-	size = (spec->nx[0] + 1) * (spec->nx[1] + 1) * sizeof(t_part_data);
-	charge = malloc(size);
-	memset(charge, 0, size);
-
-	// Deposit the charge
-	spec_deposit_charge(spec, charge);
-
-	// Compact the data to save the file (throw away guard cells)
-	size = (spec->nx[0]) * (spec->nx[1]);
-	buf = malloc(size * sizeof(float));
-
-	b = buf;
-	c = charge;
-	for (j = 0; j < spec->nx[1]; j++)
+	for (int j = 0; j < true_nx[1]; j++)
 	{
-		for (i = 0; i < spec->nx[0]; i++)
-		{
+		for (int i = 0; i < true_nx[0]; i++)
 			b[i] = c[i];
-		}
-		b += spec->nx[0];
-		c += spec->nx[0] + 1;
+
+		b += true_nx[0];
+		c += true_nx[0] + 1;
 	}
 
-	free(charge);
-
 	t_zdf_grid_axis axis[2];
-	axis[0] = (t_zdf_grid_axis) {.min = 0.0, .max = spec->box[0], .label = "x_1",
+	axis[0] = (t_zdf_grid_axis) {.min = 0.0, .max = box[0], .label = "x_1",
 									.units = "c/\\omega_p"};
 
-	axis[1] = (t_zdf_grid_axis) {.min = 0.0, .max = spec->box[1], .label = "x_2",
+	axis[1] = (t_zdf_grid_axis) {.min = 0.0, .max = box[1], .label = "x_2",
 									.units = "c/\\omega_p"};
 
 	t_zdf_grid_info info = {.ndims = 2, .label = "charge", .units = "n_e", .axis = axis};
 
-	info.nx[0] = spec->nx[0];
-	info.nx[1] = spec->nx[1];
+	info.nx[0] = true_nx[0];
+	info.nx[1] = true_nx[1];
 
-	t_zdf_iteration iter = {.n = spec->iter, .t = spec->iter * spec->dt, .time_units = "1/\\omega_p"};
+	t_zdf_iteration iter = {.n = iter_num, .t = iter_num * dt, .time_units = "1/\\omega_p"};
 
-	zdf_save_grid(buf, &info, &iter, spec->name);
+	zdf_save_grid(buf, &info, &iter, path);
 
 	free(buf);
 }
@@ -1189,19 +1128,11 @@ void spec_deposit_pha(const t_species *spec, const int rep_type, const int pha_n
 	}
 }
 
-void spec_rep_pha(const t_species *spec, const int rep_type, const int pha_nx[],
-		const float pha_range[][2])
+void spec_rep_pha(const t_part_data *buffer, const int rep_type, const int pha_nx[],
+		const float pha_range[][2], const int iter_num, const float dt, const char path[128])
 {
-
 	char const *const pha_ax_name[] = {"x1", "x2", "x3", "u1", "u2", "u3"};
 	char pha_name[64];
-
-	// Allocate phasespace buffer
-	float *restrict buf = malloc(pha_nx[0] * pha_nx[1] * sizeof(float));
-	memset(buf, 0, pha_nx[0] * pha_nx[1] * sizeof(float));
-
-	// Deposit the phasespace
-	spec_deposit_pha(spec, rep_type, pha_nx, pha_range, buf);
 
 	// save the data in hdf5 format
 	int quant1 = rep_type & 0x000F;
@@ -1226,32 +1157,21 @@ void spec_rep_pha(const t_species *spec, const int rep_type, const int pha_nx[],
 	info.nx[0] = pha_nx[0];
 	info.nx[1] = pha_nx[1];
 
-	t_zdf_iteration iter = {.n = spec->iter, .t = spec->iter * spec->dt, .time_units = "1/\\omega_p"};
+	t_zdf_iteration iter = {.n = iter_num, .t = iter_num * dt, .time_units = "1/\\omega_p"};
 
-	zdf_save_grid(buf, &info, &iter, spec->name);
-
-	// Free temp. buffer
-	free(buf);
-
+	zdf_save_grid(buffer, &info, &iter, path);
 }
 
-void spec_report(const t_species *spec, const int rep_type, const int pha_nx[],
-		const float pha_range[][2])
+void spec_calculate_energy(t_species *spec)
 {
+	t_particle_vector *restrict part = &spec->main_vector;
+	spec->energy = 0;
 
-	switch (rep_type & 0xF000)
+	for (int i = 0; i < part->size; i++)
 	{
-		case CHARGE:
-			spec_rep_charge(spec);
-			break;
-
-		case PHA:
-			spec_rep_pha(spec, rep_type, pha_nx, pha_range);
-			break;
-
-		case PARTICLES:
-			spec_rep_particles(spec);
-			break;
+		t_part_data usq = part->data[i].ux * part->data[i].ux + part->data[i].uy * part->data[i].uy
+				+ part->data[i].uz * part->data[i].uz;
+		t_part_data gamma = sqrtf(1 + usq);
+		spec->energy += usq / (gamma + 1.0);
 	}
-
 }

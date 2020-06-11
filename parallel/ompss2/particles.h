@@ -133,9 +133,13 @@ void spec_update_main_vector(t_species *spec);
 
 void spec_deposit_pha(const t_species *spec, const int rep_type, const int pha_nx[],
 		const float pha_range[][2], float *buf);
-void spec_report(const t_species *spec, const int rep_type, const int pha_nx[],
-		const float pha_range[][2]);
+void spec_rep_pha(const t_part_data *buffer, const int rep_type, const int pha_nx[],
+		const float pha_range[][2], const int iter_num, const float dt, const char path[128]);
 
 void spec_deposit_charge(const t_species *spec, float *charge);
+void spec_rep_charge(t_part_data *restrict charge, const int true_nx[2], const t_fld box[2],
+		const int iter_num, const float dt, const bool moving_window, const char path[128]);
+
+void spec_calculate_energy(t_species *spec);
 
 #endif

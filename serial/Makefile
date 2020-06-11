@@ -1,6 +1,6 @@
 # GCC options
-CC = gcc
-CFLAGS = -O3 -std=c99 -pedantic
+CC = pgcc
+CFLAGS = -fast -O3
 
 # Intel icc compiler
 #CC = icc

@@ -19,7 +19,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	float box[2] = {51.2, 51.2};
 
 	// Diagnostic frequency
-	int ndump = 500;
+	int ndump = 50;
 
 	// Initialize particles
 	const int n_species = 2;
@@ -45,23 +45,19 @@ void sim_init(t_simulation *sim, int n_regions)
 
 void sim_report(t_simulation *sim)
 {
-	sim_report_emf(sim);
-	sim_report_charge(sim);
+	sim_report_csv(sim);
 	sim_report_energy(sim);
+	sim_region_timings(sim);
 
-	/*
 	// Bx, By, Bz
-	 emf_report(&sim->emf, BFLD, 0);
-	 emf_report(&sim->emf, BFLD, 1);
-	 emf_report(&sim->emf, BFLD, 2);
+	sim_report_grid_zdf(sim, REPORT_BFLD, 0);
+	sim_report_grid_zdf(sim, REPORT_BFLD, 1);
+	sim_report_grid_zdf(sim, REPORT_BFLD, 2);
 
+	// Jz
+	sim_report_grid_zdf(sim, REPORT_CURRENT, 2);
 
-	 // Jz
-	 current_report( &sim->current, 2 );
-
-	 // electron and positron density
-	 spec_report( &sim->species[0], CHARGE, NULL, NULL );
-	 spec_report( &sim->species[1], CHARGE, NULL, NULL );
-	 */
-
+	// electron and positron density
+	sim_report_spec_zdf(sim, 0, CHARGE, NULL, NULL);
+	sim_report_spec_zdf(sim, 1, CHARGE, NULL, NULL);
 }

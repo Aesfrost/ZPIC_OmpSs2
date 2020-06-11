@@ -20,7 +20,7 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 	int i;
 
 	// Number of guard cells for linear interpolation
-	int gc[2][2] = {{1, 2}, {1, 2}};
+	int gc[2][2] = { { 1, 2 }, { 1, 2 } };
 
 	// Allocate global array
 	size_t size;
@@ -50,7 +50,7 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 	}
 
 	// Clear smoothing options
-	current->smooth = (t_smooth) {.xtype = NONE, .ytype = NONE, .xlevel = 0, .ylevel = 0};
+	current->smooth = (t_smooth ) { .xtype = NONE, .ytype = NONE, .xlevel = 0, .ylevel = 0 };
 
 	// Initialize time information
 	current->iter = 0;
@@ -134,84 +134,10 @@ void current_update(t_current *current)
 
 }
 
-void current_report(const t_current *current, const char jc)
-{
-	t_vfld *f;
-	float *buf, *p;
-	int i, j;
-	char vfname[3];
-
-	// Pack the information
-	buf = malloc(current->nx[0] * current->nx[1] * sizeof(float));
-	p = buf;
-	f = current->J;
-	vfname[0] = 'J';
-
-	switch (jc)
-	{
-		case 0:
-			for (j = 0; j < current->nx[1]; j++)
-			{
-				for (i = 0; i < current->nx[0]; i++)
-				{
-					p[i] = f[i].x;
-				}
-				p += current->nx[0];
-				f += current->nrow;
-			}
-			vfname[1] = '1';
-			break;
-		case 1:
-			for (j = 0; j < current->nx[1]; j++)
-			{
-				for (i = 0; i < current->nx[0]; i++)
-				{
-					p[i] = f[i].y;
-				}
-				p += current->nx[0];
-				f += current->nrow;
-			}
-			vfname[1] = '2';
-			break;
-		case 2:
-			for (j = 0; j < current->nx[1]; j++)
-			{
-				for (i = 0; i < current->nx[0]; i++)
-				{
-					p[i] = f[i].z;
-				}
-				p += current->nx[0];
-				f += current->nrow;
-			}
-			vfname[1] = '3';
-			break;
-	}
-	vfname[2] = 0;
-
-	t_zdf_grid_axis axis[2];
-	axis[0] = (t_zdf_grid_axis) {.min = 0.0, .max = current->box[0], .label = "x_1", .units = "c/\\omega_p"};
-
-	axis[1] = (t_zdf_grid_axis) {.min = 0.0, .max = current->box[1], .label = "x_2", .units = "c/\\omega_p"};
-
-	t_zdf_grid_info info = {.ndims = 2, .label = vfname, .units = "e \\omega_p^2 / c", .axis = axis};
-
-	info.nx[0] = current->nx[0];
-	info.nx[1] = current->nx[1];
-
-	t_zdf_iteration iter = {.n = current->iter, .t = current->iter * current->dt, .time_units = "1/\\omega_p"};
-
-	zdf_save_grid(buf, &info, &iter, "CURRENT");
-
-	// free local data
-	free(buf);
-
-}
-
-/*
- * get_smooth_comp
- *  Gets the value of the compensator kernel for an n pass binomial kernel
- */
-
+/*********************************************************************************************
+ Smoothing
+ *********************************************************************************************/
+//Gets the value of the compensator kernel for an n pass binomial kernel
 void get_smooth_comp(int n, t_fld *sa, t_fld *sb)
 {
 	t_fld a, b, total;
@@ -264,9 +190,17 @@ void kernel_x(t_current *const current, const t_fld sa, const t_fld sb)
 			for (i = 0; i < current->gc[0][1]; i++)
 				J[idx + current->nx[0] + i] = J[idx + i];
 		}
-
 	}
 
+	// Update y boundaries
+	// Grid is always periodic along y
+	for (i = -current->gc[0][0]; i < current->nx[0] + current->gc[0][1]; i++)
+	{
+		for (j = -current->gc[1][0]; j < 0; j++)
+			J[i + j * nrow] = J[i + (current->nx[1] + j) * nrow];
+		for (j = 0; j < current->gc[1][1]; j++)
+			J[i + (current->nx[1] + j) * nrow] = J[i + j * nrow];
+	}
 }
 
 void kernel_y(t_current *const current, const t_fld sa, const t_fld sb)
@@ -321,7 +255,6 @@ void kernel_y(t_current *const current, const t_fld sa, const t_fld sb)
 		for (j = 0; j < current->gc[1][1]; j++)
 			J[i + (current->nx[1] + j) * nrow] = J[i + j * nrow];
 	}
-
 }
 
 void current_smooth(t_current *const current)
@@ -336,12 +269,8 @@ void current_smooth(t_current *const current)
 	if (current->smooth.xtype != NONE)
 	{
 		// binomial filter
-		sa = 0.25;
-		sb = 0.5;
 		for (i = 0; i < current->smooth.xlevel; i++)
-		{
 			kernel_x(current, 0.25, 0.5);
-		}
 
 		// Compensator
 		if (current->smooth.xtype == COMPENSATED)
@@ -355,12 +284,8 @@ void current_smooth(t_current *const current)
 	if (current->smooth.ytype != NONE)
 	{
 		// binomial filter
-		sa = 0.25;
-		sb = 0.5;
-		for (i = 0; i < current->smooth.xlevel; i++)
-		{
+		for (i = 0; i < current->smooth.ylevel; i++)
 			kernel_y(current, 0.25, 0.5);
-		}
 
 		// Compensator
 		if (current->smooth.ytype == COMPENSATED)
@@ -372,3 +297,81 @@ void current_smooth(t_current *const current)
 
 }
 
+/*********************************************************************************************
+ Diagnostics
+ *********************************************************************************************/
+void current_report(const t_current *current, const char jc, const char path[128])
+{
+	t_vfld *f;
+	float *buf, *p;
+	int i, j;
+	char vfname[3];
+
+	// Pack the information
+	buf = malloc(current->nx[0] * current->nx[1] * sizeof(float));
+	p = buf;
+	f = current->J;
+	vfname[0] = 'J';
+
+	switch (jc)
+	{
+		case 0:
+			for (j = 0; j < current->nx[1]; j++)
+			{
+				for (i = 0; i < current->nx[0]; i++)
+				{
+					p[i] = f[i].x;
+				}
+				p += current->nx[0];
+				f += current->nrow;
+			}
+			vfname[1] = '1';
+			break;
+		case 1:
+			for (j = 0; j < current->nx[1]; j++)
+			{
+				for (i = 0; i < current->nx[0]; i++)
+				{
+					p[i] = f[i].y;
+				}
+				p += current->nx[0];
+				f += current->nrow;
+			}
+			vfname[1] = '2';
+			break;
+		case 2:
+			for (j = 0; j < current->nx[1]; j++)
+			{
+				for (i = 0; i < current->nx[0]; i++)
+				{
+					p[i] = f[i].z;
+				}
+				p += current->nx[0];
+				f += current->nrow;
+			}
+			vfname[1] = '3';
+			break;
+	}
+	vfname[2] = 0;
+
+	t_zdf_grid_axis axis[2];
+	axis[0] = (t_zdf_grid_axis ) { .min = 0.0, .max = current->box[0], .label = "x_1",
+					.units = "c/\\omega_p" };
+
+	axis[1] = (t_zdf_grid_axis ) { .min = 0.0, .max = current->box[1], .label = "x_2",
+					.units = "c/\\omega_p" };
+
+	t_zdf_grid_info info = { .ndims = 2, .label = vfname, .units = "e \\omega_p^2 / c", .axis = axis };
+
+	info.nx[0] = current->nx[0];
+	info.nx[1] = current->nx[1];
+
+	t_zdf_iteration iter = { .n = current->iter, .t = current->iter * current->dt,
+			.time_units = "1/\\omega_p" };
+
+	zdf_save_grid(buf, &info, &iter, path);
+
+	// free local data
+	free(buf);
+
+}
