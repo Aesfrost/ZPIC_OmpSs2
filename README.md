@@ -14,13 +14,13 @@ ZPIC is a 2D plasma simulator using the widely used PIC (particle-in-cell) algor
 - Parallelism based on tasks and data dependencies (OmpSs-2)
 - No taskwait (or synchronism) between iterations of the simulation (OmpSs-2)
 - The OpenAcc kernels are integrated into OmpSs tasks
-- Hybrid structure for the particles (Structure of Arrays (SoA) for GPUs and Array of Structure (AoS) for CPU)
+- Hybrid structure for the particles (Structure of Arrays (SoA) for GPU and Array of Structure (AoS) for CPU)
 - Manual allocation of regions to be execute in the GPU (based on a percentage of the total number of regions)
 - Bucket Sort every 15 iterations
 
 ### OpenAcc:
 - Based on the serial version
-- Almost all computation are done in the GPU
+- All computation are done in the GPU
 - Particles use a Structure of Array (SoA) to improve GPU performance
 - Bucket Sort every 15 iterations
 
@@ -31,14 +31,19 @@ Two widely known plasma experiments - LWFA and Weibel Instability - are already 
 
 ## Output
 The same file used to set the parameters of the simulation defines the ouput files and the frequency of the output (in terms of simulation iterations).
-By default, the ZPIC produce the following maps (every 50 iterations):
-- Charge (for each particle type)
+
+### ZDF Format
+Like the original ZPIC, both serial and pure OmpSs-2 versions supports the ZDF file format. For more information, please visit the [ZDF repository](https://github.com/ricardo-fonseca/zpic/tree/master/zdf).
+
+In the future, all the versions will have support for this file format.
+
+### CSV Format
+Besides the ZDF files, ZPIC can produce .csv files (delimiter = ";") for the following parameters:
+- Charge map (for each particle type)
 - Eletric field magnitude
 - Magnetic field magnitude
-
-Also, ZPIC monitors the EM fields' energy and particles' energy.
-
-All output files are in the .csv format with ";" as delimiter. 
+- EM fields' energy
+- Particles' energy
 
 ## Compilation and Execution
 ### OmpSs:
