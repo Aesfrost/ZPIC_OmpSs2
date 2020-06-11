@@ -1,3 +1,14 @@
+/*********************************************************************************************
+ ZPIC
+ region.h
+
+ Created by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
+
 #ifndef REGION
 #define REGION
 

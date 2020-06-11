@@ -1,11 +1,13 @@
-/*
- *  current.c
- *  zpic
- *
- *  Created by Ricardo Fonseca on 12/8/10.
- *  Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
- *
- */
+/*********************************************************************************************
+ ZPIC
+ current.c
+
+ Created by Ricardo Fonseca on 12/8/10.
+ Modified by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
 
 #include "current.h"
 
@@ -70,6 +72,7 @@ void current_delete(t_current *current)
 	current->J_buf = NULL;
 }
 
+// Set the current buffer to zero
 void current_zero(t_current *current)
 {
 	// zero fields
@@ -80,6 +83,7 @@ void current_zero(t_current *current)
 
 }
 
+// Set the overlap zone between adjacent regions (only the upper zone)
 void current_overlap_zone(t_current *current, t_current *upper_current)
 {
 	current->J_upper = upper_current->J
@@ -110,6 +114,7 @@ void current_reduction_y(t_current *current)
 	}
 }
 
+// Current reduction between ghost cells in the x direction
 void current_reduction_x(t_current *current)
 {
 	if (current->moving_window) return;
@@ -133,6 +138,7 @@ void current_reduction_x(t_current *current)
 	current->iter++;
 }
 
+// Update the ghost cells in the y direction (only the upper zone)
 void current_gc_update_y(t_current *current)
 {
 	const int nrow = current->nrow;
@@ -173,6 +179,7 @@ void get_smooth_comp(int n, t_fld *sa, t_fld *sb)
 	*sb = b / total;
 }
 
+// Apply the filter in the x direction
 void kernel_x(t_current *const current, const t_fld sa, const t_fld sb)
 {
 	int i, j;
@@ -216,6 +223,7 @@ void kernel_x(t_current *const current, const t_fld sa, const t_fld sb)
 	}
 }
 
+// Apply the filter in the y direction
 void kernel_y(t_current *const current, const t_fld sa, const t_fld sb)
 {
 	t_vfld flbuf[current->nx[0]];
@@ -258,6 +266,8 @@ void kernel_y(t_current *const current, const t_fld sa, const t_fld sb)
 	}
 }
 
+// Apply multiple passes of a binomial filter to reduce noise (X direction).
+// Then, pass a compensation filter (if applicable)
 void current_smooth_x(t_current *current)
 {
 	// filter kernel [sa, sb, sa]
@@ -275,6 +285,8 @@ void current_smooth_x(t_current *current)
 	}
 }
 
+// Apply a binomial filter to reduce noise (Y direction).
+// Or, apply a compensation filter (if applicable)
 void current_smooth_y(t_current *current, enum smooth_type type)
 {
 	// filter kernel [sa, sb, sa]
@@ -297,6 +309,8 @@ void current_smooth_y(t_current *current, enum smooth_type type)
 /*********************************************************************************************
  Diagnostics
  *********************************************************************************************/
+
+// Recreate a global buffer for a given direction
 void current_reconstruct_global_buffer(t_current *current, float *global_buffer, const int offset,
 		const int jc)
 {
@@ -341,6 +355,7 @@ void current_reconstruct_global_buffer(t_current *current, float *global_buffer,
 	}
 }
 
+// Save the reconstructed global buffer in the ZDF file format
 void current_report(const float *restrict global_buffer, const int iter_num, const int true_nx[2],
 		const float box[2], const float dt, const char jc, const char path[128])
 {

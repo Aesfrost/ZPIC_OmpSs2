@@ -1,11 +1,13 @@
-/*
- *  current.c
- *  zpic
- *
- *  Created by Ricardo Fonseca on 12/8/10.
- *  Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
- *
- */
+/*********************************************************************************************
+ ZPIC
+ current.c
+
+ Created by Ricardo Fonseca on 12/8/10.
+ Modified by Nicolas Guidotti on 11/06/20
+
+ Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
 
 #include "current.h"
 
@@ -15,6 +17,7 @@
 
 #include "zdf.h"
 
+// Constructor
 void current_new(t_current *current, int nx[], t_fld box[], float dt)
 {
 	int i;

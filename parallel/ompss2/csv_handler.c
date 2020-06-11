@@ -1,3 +1,13 @@
+/*********************************************************************************************
+ ZPIC
+ csv_handler.c
+
+ Created by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>

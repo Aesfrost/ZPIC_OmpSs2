@@ -1,3 +1,15 @@
+/*********************************************************************************************
+ ZPIC
+ simulation.c
+
+ Created by Ricardo Fonseca on 11/8/10.
+ Modified by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,12 +53,14 @@ void sim_create_dir(t_simulation *sim)
 	}
 }
 
+// Constructor
 void sim_new(t_simulation *sim, int nx[2], float box[2], float dt, float tmax, int ndump,
 		t_species *species, int n_species, char name[64], int n_regions)
 {
 	t_particle_vector *restrict part;
 	double usq, gamma;
 
+	// Simulation parameters
 	sim->iter = 0;
 	sim->moving_window = false;
 	sim->dt = dt;
@@ -94,6 +108,7 @@ void sim_new(t_simulation *sim, int nx[2], float box[2], float dt, float tmax, i
 		exit(-1);
 	}
 
+	// Create output directory
 	sim_create_dir(sim);
 
 	char filename[128];
@@ -206,19 +221,21 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1)
 	fprintf(stdout, "Simulation: %s\n", sim->name);
 	fprintf(stdout, "Number of regions: %d\n", n_regions);
 	fprintf(stdout, "Number of threads: %d\n", n_threads);
-	fprintf(stdout, "Time for spec. advance = %f s\n", spec_time() / n_threads);
-	fprintf(stdout, "Time for emf   advance = %f s\n", emf_time() / n_threads);
+//	fprintf(stdout, "Time for spec. advance = %f s\n", spec_time() / n_threads); // Disable due to compatibility issues
+//	fprintf(stdout, "Time for emf   advance = %f s\n", emf_time() / n_threads); // Disable due to compatibility issues
 	fprintf(stdout, "Total simulation time  = %f s\n", timer_interval_seconds(t0, t1));
 	fprintf(stdout, "\n");
 
-	if (spec_time() > 0)
-	{
-		double perf = spec_perf();
-		fprintf(stderr, "Particle advance [nsec/part] = %f \n", 1.e9 * perf);
-		fprintf(stderr, "Particle advance [Mpart/sec] = %f \n", 1.e-6 / perf);
-	}
+	// Disable due to compatibility issues
+//	if (spec_time() > 0)
+//	{
+//		double perf = spec_perf();
+//		fprintf(stderr, "Particle advance [nsec/part] = %f \n", 1.e9 * perf);
+//		fprintf(stderr, "Particle advance [Mpart/sec] = %f \n", 1.e-6 / perf);
+//	}
 }
 
+// Save the simulation to a CSV file
 void sim_report_energy(t_simulation *sim)
 {
 	char filename[128];
@@ -252,6 +269,7 @@ void sim_report_energy(t_simulation *sim)
 	}
 }
 
+// Save the particles charge map to a CSV file
 void sim_report_charge_csv(t_simulation *sim)
 {
 	t_region *restrict region;
@@ -306,6 +324,7 @@ void sim_report_charge_csv(t_simulation *sim)
 	free(buf);
 }
 
+// Save the EMF magnitude to a CSV version
 void sim_report_emf_csv(t_simulation *sim)
 {
 	char filenameE[128];
@@ -331,33 +350,35 @@ void sim_report_emf_csv(t_simulation *sim)
 	free(B_magnitude);
 }
 
-void sim_region_timings(t_simulation *sim)
-{
-	char filename[128];
+// Save the region time in a CSV file (Disabled due to a compatibility issue)
+//void sim_region_timings(t_simulation *sim)
+//{
+//	char filename[128];
+//
+//	sprintf(filename, "output/%s/region_timings.csv", sim->name);
+//	FILE *file = fopen(filename, "a+");
+//
+//	if (file)
+//	{
+//		t_region *restrict region = sim->first_region;
+//
+//		while(region->next->id != 0)
+//		{
+//			fprintf(file, "%lf;", region->iter_time);
+//			region = region->next;
+//		}
+//
+//		fprintf(file, "%lf\n", region->iter_time);
+//		fclose(file);
+//
+//	} else
+//	{
+//		printf("Error on open file: %s", filename);
+//		exit(1);
+//	}
+//}
 
-	sprintf(filename, "output/%s/region_timings.csv", sim->name);
-	FILE *file = fopen(filename, "a+");
-
-	if (file)
-	{
-		t_region *restrict region = sim->first_region;
-
-		while(region->next->id != 0)
-		{
-			fprintf(file, "%lf;", region->iter_time);
-			region = region->next;
-		}
-
-		fprintf(file, "%lf\n", region->iter_time);
-		fclose(file);
-
-	} else
-	{
-		printf("Error on open file: %s", filename);
-		exit(1);
-	}
-}
-
+// Save the grid quantity to a ZDF file
 void sim_report_grid_zdf(t_simulation *sim, enum report_grid_type type, const int coord)
 {
 	t_region *restrict region = sim->first_region;
@@ -406,12 +427,14 @@ void sim_report_grid_zdf(t_simulation *sim, enum report_grid_type type, const in
 	free(global_buf);
 }
 
+// Wrapper for CSV report
 void sim_report_csv(t_simulation *sim)
 {
 	sim_report_emf_csv(sim);
 	sim_report_charge_csv(sim);
 }
 
+// Save a particle property to a ZDF file
 void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_type,
 		const int pha_nx[2], const float pha_range[][2])
 {

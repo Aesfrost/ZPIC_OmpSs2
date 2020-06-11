@@ -1,5 +1,5 @@
-/*
- Copyright (C) 2017 Instituto Superior Tecnico
+/*****************************************************************************************
+ Copyright (C) 2020 Instituto Superior Tecnico
 
  This file is part of the ZPIC Educational code suite
 
@@ -15,7 +15,10 @@
 
  You should have received a copy of the GNU Affero General Public License
  along with the ZPIC Educational code suite. If not, see <http://www.gnu.org/licenses/>.
- */
+
+ *****************************************************************************************
+ The original ZPIC was modified to include the support for the OmpSs-2 programming model.
+ *****************************************************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,8 +68,6 @@ int main(int argc, const char *argv[])
 	}
 
 	#pragma oss taskwait
-
-	//sim_report(&sim);
 
 	t1 = timer_ticks();
 	fprintf(stderr, "\nSimulation ended.\n\n");

@@ -47,7 +47,6 @@ void sim_report(t_simulation *sim)
 {
 	sim_report_csv(sim);
 	sim_report_energy(sim);
-	sim_region_timings(sim);
 
 	// Bx, By, Bz
 	sim_report_grid_zdf(sim, REPORT_BFLD, 0);

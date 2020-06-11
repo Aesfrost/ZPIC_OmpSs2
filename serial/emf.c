@@ -1,11 +1,14 @@
-/*
- *  emf.c
- *  zpic
- *
- *  Created by Ricardo Fonseca on 10/8/10.
- *  Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
- *
- */
+/*********************************************************************************************
+ ZPIC
+ emf.c
+
+ Created by Ricardo Fonseca on 10/8/10.
+ Modified by Nicolas Guidotti on 11/06/20
+
+ Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,9 +29,7 @@ double emf_time(void)
 }
 
 /*********************************************************************************************
-
  Constructor / Destructor
-
  *********************************************************************************************/
 
 void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)

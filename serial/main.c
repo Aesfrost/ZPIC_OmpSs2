@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2017 Instituto Superior Tecnico
+ Copyright (C) 2020 Instituto Superior Tecnico
 
  This file is part of the ZPIC Educational code suite
 

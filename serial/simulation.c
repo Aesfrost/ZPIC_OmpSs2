@@ -1,3 +1,14 @@
+/*********************************************************************************************
+ ZPIC
+ simulation.c
+
+ Created by Ricardo Fonseca on 12/8/10.
+ Modified by Nicolas Guidotti on 11/06/20
+
+ Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,3 +1,13 @@
+/*********************************************************************************************
+ ZPIC
+ region.c
+
+ Created by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
 #include "region.h"
 
 #include <math.h>
@@ -17,27 +27,30 @@ int get_n_regions()
 /*********************************************************************************************
  Initialisation
  *********************************************************************************************/
+
+// Build a double-linked list of the regions
 void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, t_species *spec,
 		float box[], float dt, t_region *prev_region)
 {
 	region->id = id;
-	region->prev = prev_region;
+	region->prev = prev_region; // Previous region in the list
 
+	// Region boundaries
 	region->limits_y[0] = floor((float) id * nx[1] / n_regions);
 	region->limits_y[1] = floor((float) (id + 1) * nx[1] / n_regions);
 	region->nx[0] = nx[0];
 	region->nx[1] = region->limits_y[1] - region->limits_y[0];
 
+	// Reset the region timer
 	region->iter_time = 0.0;
 
-	// Initialise particles in the region
+	// Initialise the particles inside the region
 	t_particle_vector *restrict particles;
 
 	region->n_species = n_spec;
 	region->species = (t_species*) malloc(n_spec * sizeof(t_species));
 	assert(region->species);
 
-	#pragma acc set device_num(0)
 	int start, end;
 	for (int n = 0; n < n_spec; ++n)
 	{
@@ -218,8 +231,8 @@ void region_current_reduction_y(t_region *region)
 	if (region->next->id != 0) region_current_reduction_y(region->next);
 }
 
-// Apply the filter to the current buffer in all regions recursively. Then is necessary to
-// update the ghost cells for produce correct results
+// Apply the filter to the current buffer in all regions recursively. To produce
+// accurate results, the ghost cells MUST be updated after
 void region_current_smooth(t_region *region, enum CURRENT_SMOOTH_MODE mode)
 {
 	switch (mode)
@@ -247,8 +260,8 @@ void region_current_smooth(t_region *region, enum CURRENT_SMOOTH_MODE mode)
 	if (region->next->id != 0) region_current_smooth(region->next, mode);
 }
 
-// Advance the EMF in each region recursively. Then is necessary update the ghost cells to reflect the
-// new values
+// Advance the EMF in each region recursively. To produce
+// accurate results, the ghost cells MUST be updated after
 void region_emf_advance(t_region *region, enum EMF_UPDATE mode)
 {
 	switch (mode)
@@ -274,9 +287,11 @@ void region_advance(t_region *region)
 	if (region->id != 0) while (region->id != 0)
 		region = region->next;
 
+	// Particle
 	region_spec_advance(region);
 	region_spec_update(region);
 
+	// Current
 	region_current_reduction_x(region);
 	region_current_reduction_y(region);
 
@@ -301,6 +316,7 @@ void region_advance(t_region *region)
 		}
 	}
 
+	// EMF
 	region_emf_advance(region, EMF_ADVANCE);
 	region_emf_advance(region, EMF_UPDATE_GC);
 }

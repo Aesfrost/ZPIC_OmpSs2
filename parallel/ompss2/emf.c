@@ -1,11 +1,13 @@
-/*
- *  emf.c
- *  zpic
- *
- *  Created by Ricardo Fonseca on 10/8/10.
- *  Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
- *
- */
+/*********************************************************************************************
+ ZPIC
+ emf.c
+
+ Created by Ricardo Fonseca on 10/8/10.
+ Modified by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,7 +30,6 @@ double emf_time(void)
 /*********************************************************************************************
  Constructor / Destructor
  *********************************************************************************************/
-
 void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 {
 	int i;
@@ -86,6 +87,7 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 	emf->n_move = 0;
 }
 
+// Set the overlap zone between regions (upper zone only)
 void emf_overlap_zone(t_emf *emf, t_emf *upper)
 {
 	emf->B_upper = upper->B + (upper->nx[1] - upper->gc[1][0]) * upper->nrow;
@@ -288,6 +290,7 @@ void emf_add_laser(t_emf *const emf, t_emf_laser *laser, int offset_y)
  Diagnostics
  *********************************************************************************************/
 
+// Reconstruct the global buffer for the eletric/magnetic field in a given direction
 void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const int offset,
 		const char field, const char fc)
 {
@@ -349,6 +352,7 @@ void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const
 	}
 }
 
+// Save the reconstructed buffer in a ZDF file
 void emf_report(const float *restrict global_buffer, const float box[2], const int true_nx[2],
 		const int iter, const float dt, const char field, const char fc, const char path[128])
 {
@@ -402,6 +406,7 @@ void emf_report(const float *restrict global_buffer, const float box[2], const i
 
 }
 
+// Calculate the EMF energy
 double emf_get_energy(t_emf *emf)
 {
 	t_vfld *const restrict E = emf->E;
@@ -421,6 +426,7 @@ double emf_get_energy(t_emf *emf)
 	return result * 0.5 * emf->dx[0] * emf->dx[1];
 }
 
+// Calculate the magnitude of the EMF for a given region
 void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag, t_fld *restrict B_mag,
 		const int nrow, const int offset)
 {
@@ -509,6 +515,7 @@ void yee_e(t_emf *emf, const t_current *current, const float dt)
 	}
 }
 
+// Update the ghost cells in the X direction
 void emf_update_gc_x(t_emf *emf)
 {
 	int i, j;
@@ -552,7 +559,7 @@ void emf_update_gc_x(t_emf *emf)
 	}
 }
 
-// This code operates with periodic boundaries
+// Update ghost cells in the upper overlap zone (Y direction)
 void emf_update_gc_y(t_emf *emf)
 {
 	uint64_t t0 = timer_ticks();
@@ -580,10 +587,12 @@ void emf_update_gc_y(t_emf *emf)
 		}
 	}
 
+	// Cannot be used with the PGI compiler
 	//#pragma oss atomic
 	//_emf_time += timer_interval_seconds(t0, timer_ticks());
 }
 
+// Move the simulation window
 void emf_move_window(t_emf *emf)
 {
 
@@ -618,6 +627,7 @@ void emf_move_window(t_emf *emf)
 	}
 }
 
+// Perform the local integration of the fields
 void emf_advance(t_emf *emf, const t_current *current)
 {
 	uint64_t t0 = timer_ticks();
@@ -636,7 +646,7 @@ void emf_advance(t_emf *emf, const t_current *current)
 	// Move simulation window if needed
 	if (emf->moving_window) emf_move_window(emf);
 
-	// Update timing information
+	// Update timing information (cannot be used with PGI Compiler)
 	//#pragma oss atomic
 	//_emf_time += timer_interval_seconds(t0, timer_ticks());
 }

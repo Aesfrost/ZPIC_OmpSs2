@@ -1,11 +1,14 @@
-/*
- *  particles.h
- *  zpic
- *
- *  Created by Ricardo Fonseca on 11/8/10.
- *  Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
- *
- */
+/*********************************************************************************************
+ ZPIC
+ particles.h
+
+ Created by Ricardo Fonseca on 11/8/10.
+ Modified by Nicolas Guidotti on 11/06/20
+
+ Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
 
 #ifndef __PARTICLES__
 #define __PARTICLES__

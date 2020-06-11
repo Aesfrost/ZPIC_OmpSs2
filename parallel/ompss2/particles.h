@@ -1,11 +1,13 @@
-/*
- *  particles.h
- *  zpic
- *
- *  Created by Ricardo Fonseca on 11/8/10.
- *  Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
- *
- */
+/*********************************************************************************************
+ ZPIC
+ particles.h
+
+ Created by Ricardo Fonseca on 11/8/10.
+ Modified by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
 
 #ifndef __PARTICLES__
 #define __PARTICLES__
@@ -23,7 +25,7 @@ typedef struct {
 	t_part_data x, y;
 	t_part_data ux, uy, uz;
 
-	// Can safely delete the particle (e.g., particle have already been transferred to another region)
+	// Mark the particle as invalid (the particle exited the region)
 	bool safe_to_delete;
 
 } t_part;
@@ -89,16 +91,19 @@ typedef struct {
 	int n_move;
 } t_species;
 
+// Setup
 void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc[],
 		const t_part_data ufl[], const t_part_data uth[], const int nx[], t_part_data box[],
 		const float dt, t_density *density);
 void spec_inject_particles(t_species *spec, const int range[][2]);
 void spec_delete(t_species *spec);
 
-void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const int type_size);
-
+// Report - General
 double spec_time(void);
 double spec_perf(void);
+
+// Utilities
+void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const int type_size);
 
 // CPU Tasks
 #pragma oss task in(emf->E_buf[0; emf->total_size]) in(emf->B_buf[0; emf->total_size]) \
@@ -115,9 +120,7 @@ void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *low
 void spec_update_main_vector(t_species *spec);
 
 /*********************************************************************************************
-
  Diagnostics
-
  *********************************************************************************************/
 
 #define CHARGE 		0x1000
@@ -131,15 +134,18 @@ void spec_update_main_vector(t_species *spec);
 
 #define PHASESPACE(a,b) ((a) + (b)*16 + PHA)
 
+// Phase space
 void spec_deposit_pha(const t_species *spec, const int rep_type, const int pha_nx[],
 		const float pha_range[][2], float *buf);
 void spec_rep_pha(const t_part_data *buffer, const int rep_type, const int pha_nx[],
 		const float pha_range[][2], const int iter_num, const float dt, const char path[128]);
 
+// Charge map
 void spec_deposit_charge(const t_species *spec, float *charge);
 void spec_rep_charge(t_part_data *restrict charge, const int true_nx[2], const t_fld box[2],
 		const int iter_num, const float dt, const bool moving_window, const char path[128]);
 
+// Energy
 void spec_calculate_energy(t_species *spec);
 
 #endif

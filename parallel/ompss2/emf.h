@@ -1,11 +1,13 @@
-/*
- *  emf.h
- *  zpic
- *
- *  Created by Ricardo Fonseca on 10/8/10.
- *  Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
- *
- */
+/*********************************************************************************************
+ ZPIC
+ emf.h
+
+ Created by Ricardo Fonseca on 10/8/10.
+ Modified by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
 
 #ifndef __EMF__
 #define __EMF__
@@ -33,8 +35,8 @@ typedef struct {
 	t_fld box[2];
 	t_fld dx[2];
 
-	int total_size;
-	int overlap;
+	int total_size; // Total size of the buffer
+	int overlap; // Size of the overlap
 
 	// Time step
 	float dt;
@@ -74,6 +76,7 @@ typedef struct {
 
 } t_emf_laser;
 
+// Setup
 void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt);
 void emf_delete(t_emf *emf);
 void emf_overlap_zone(t_emf *emf, t_emf *upper);
@@ -83,13 +86,17 @@ void div_corr_x(t_emf *emf);
 void emf_move_window(t_emf *emf);
 void emf_update_gc_x(t_emf *emf);
 
-// EMF Report
+// General Report
 double emf_time(void);
 double emf_get_energy(t_emf *emf);
+
+// ZDF Report
 void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const int offset,
 		const char field, const char fc);
 void emf_report(const float *restrict global_buffer, const float box[2], const int true_nx[2],
 		const int iter, const float dt, const char field, const char fc, const char path[128]);
+
+// CSV Report
 void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag,
 		t_fld *restrict B_mag, const int nrow, const int offset);
 
@@ -104,6 +111,6 @@ inout(emf->B_upper[-emf->gc[0][0]; emf->overlap]) \
 inout(emf->E_buf[0; emf->overlap]) \
 inout(emf->E_upper[-emf->gc[0][0]; emf->overlap]) \
 label(EMF Update GC)
-void emf_update_gc_y(t_emf *emf);
+void emf_update_gc_y(t_emf *emf); // Each region is update the ghost cells in the top edge
 
 #endif

@@ -1,11 +1,13 @@
-/*
- *  particles.c
- *  zpic
- *
- *  Created by Ricardo Fonseca on 11/8/10.
- *  Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
- *
- */
+/*********************************************************************************************
+ ZPIC
+ particles.c
+
+ Created by Ricardo Fonseca on 11/8/10.
+ Modified by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
 
 #include <stdlib.h>
 #include <math.h>
@@ -46,10 +48,9 @@ double spec_perf(void)
 /*********************************************************************************************
  Vector Handling
  *********************************************************************************************/
+// Manual reallocation of buffers
 void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const int type_size)
 {
-	#pragma acc set device_num(0)
-
 	if(*ptr == NULL) *ptr = malloc(new_size * type_size);
 	else
 	{
@@ -69,10 +70,9 @@ void realloc_vector(void **restrict ptr, const int old_size, const int new_size,
 }
 
 /**
- * Add to the content of the temporary buffer into the particles vector
+ * Add to the content of the temporary buffers into the particles vector
  * @param spec  Particle species
  */
-
 void spec_update_main_vector(t_species *spec)
 {
 	int i = 0, j, k;
@@ -141,7 +141,7 @@ void spec_add_to_temp_vector(t_particle_vector *temp, t_part part)
  *********************************************************************************************/
 
 /**
- * Sets the momentum of the range of particles supplieds using a thermal distribution
+ * Sets the momentum of the range of particles supplied using a thermal distribution
  * @param spec  Particle species
  * @param start Index of the first particle to set the momentum
  * @param end   Index of the last particle to set the momentum
@@ -159,6 +159,7 @@ void spec_set_u(t_species *spec, const int start, const int end)
 
 }
 
+// Set the initial position of the particles
 void spec_set_x(t_species *spec, const int range[][2])
 {
 	int i, j, k, ip;
@@ -261,14 +262,13 @@ void spec_set_x(t_species *spec, const int range[][2])
 	free(poscell);
 }
 
+// Inject the particles in the simulation
 void spec_inject_particles(t_species *spec, const int range[][2])
 {
 	int start = spec->main_vector.size;
 
 	// Get maximum number of particles to inject
 	int np_inj = (range[0][1] - range[0][0]) * (range[1][1] - range[1][0]) * spec->ppc[0] * spec->ppc[1];
-
-	#pragma acc set device_num(0)
 
 	// Check if buffer is large enough and if not reallocate
 	if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
@@ -285,6 +285,7 @@ void spec_inject_particles(t_species *spec, const int range[][2])
 	spec_set_u(spec, start, spec->main_vector.size - 1);
 }
 
+// Constructor
 void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc[],
 		const t_part_data *ufl, const t_part_data *uth, const int nx[], t_part_data box[],
 		const float dt, t_density *density)
@@ -382,7 +383,7 @@ void spec_delete(t_species *spec)
 /*********************************************************************************************
  Current deposition
  *********************************************************************************************/
-
+// Current deposition (Esirkepov method)
 void dep_current_esk(int ix0, int iy0, int di, int dj, t_part_data x0, t_part_data y0,
 		t_part_data x1, t_part_data y1, t_part_data qvx, t_part_data qvy, t_part_data qvz,
 		t_current *current)
@@ -473,6 +474,7 @@ void dep_current_esk(int ix0, int iy0, int di, int dj, t_part_data x0, t_part_da
 
 }
 
+// Current deposition (adapted Villasenor-Bunemann method)
 void dep_current_zamb(int ix, int iy, int di, int dj, float x0, float y0, float dx, float dy,
 		float qnx, float qny, float qvz, t_current *current)
 {
@@ -629,83 +631,12 @@ void dep_current_zamb(int ix, int iy, int di, int dj, float x0, float y0, float 
 	}
 }
 
-/*********************************************************************************************
- Sort
- *********************************************************************************************/
-
-void spec_sort(t_species *spec, const int bin_size)
-{
-	const int n_bins_x = ceil((float) spec->nx[0] / bin_size);
-	const int n_bins_y = ceil((float) spec->nx[1] / bin_size);
-	t_part **bins = malloc(n_bins_y * n_bins_x * sizeof(t_part*));
-	int *count = malloc(n_bins_y * n_bins_x * sizeof(int));
-	int *prefix_sum = malloc(n_bins_y * n_bins_x * sizeof(int));
-	int *temp = malloc(n_bins_y * n_bins_x * sizeof(int));
-
-	int idx, ix, iy;
-
-	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-		count[i] = 0;
-
-	// Count the number of elements in each bin
-	for (int i = 0; i < spec->main_vector.size; i++)
-		if (!spec->main_vector.data[i].safe_to_delete)
-		{
-			ix = spec->main_vector.data[i].ix / bin_size;
-			iy = spec->main_vector.data[i].iy / bin_size;
-
-			count[ix + iy * n_bins_x]++;
-		}
-
-	// Allocate the bins
-	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-		bins[i] = malloc(count[i] * sizeof(t_part));
-
-	memcpy(prefix_sum, count, n_bins_y * n_bins_x * sizeof(int));
-	memset(count, 0, n_bins_y * n_bins_x * sizeof(int));
-
-	// Prefix sum to find the initial index of each bin
-	for (int n = 1; n < n_bins_x * n_bins_y; n *= 2)
-	{
-		for (int i = 0; i < n_bins_x * n_bins_y - n; i++)
-			temp[i] = prefix_sum[i];
-
-		for (int i = n; i < n_bins_x * n_bins_y; i++)
-			prefix_sum[i] += temp[i - n];
-	}
-
-	// Distribute the elements to the bins
-	for (int i = 0; i < spec->main_vector.size; i++)
-		if (!spec->main_vector.data[i].safe_to_delete)
-		{
-			ix = spec->main_vector.data[i].ix / bin_size;
-			iy = spec->main_vector.data[i].iy / bin_size;
-			idx = count[ix + iy * n_bins_x];
-			count[ix + iy * n_bins_x]++;
-
-			bins[ix + iy * n_bins_x][idx] = spec->main_vector.data[i];
-		}
-
-	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-		for (int k = 0; k < count[i]; k++)
-			spec->main_vector.data[prefix_sum[i] + k - count[i]] = bins[i][k];
-
-	spec->main_vector.size = prefix_sum[n_bins_x * n_bins_y - 1];
-
-	// Cleaning
-	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-		free(bins[i]);
-
-	free(bins);
-	free(prefix_sum);
-	free(count);
-	free(temp);
-}
 
 /*********************************************************************************************
  Particle advance
  *********************************************************************************************/
 
+// EM fields interpolation
 void interpolate_fld(const t_vfld *restrict const E, const t_vfld *restrict const B, const int nrow,
 		const t_part *restrict const part, t_vfld *restrict const Ep, t_vfld *restrict const Bp, const int offset)
 {
@@ -751,13 +682,11 @@ int ltrim(t_part_data x)
 	return (x >= 1.0f) - (x < 0.0f);
 }
 
+// Particle advance
 void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[2])
 {
 	int i;
 	t_part_data qnx, qny, qvz;
-
-	uint64_t t0;
-	t0 = timer_ticks();
 
 	const int nx0 = spec->nx[0];
 	const int nx1 = spec->nx[1];
@@ -824,7 +753,6 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 		uz = utz + utx * Bp.y - uty * Bp.x;
 
 		// Perform second half of the rotation
-
 		Bp.x *= otsq;
 		Bp.y *= otsq;
 		Bp.z *= otsq;
@@ -872,20 +800,19 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 	}
 }
 
+// Particle post processing (Transfer particles between regions and move the simulation
+// window, if applicable)
 void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *lower_spec,
 		int limits_y[2])
 {
 	const int nx0 = spec->nx[0];
 	const int nx1 = spec->nx[1];
 
-	#pragma acc set device_num(0)
-
 	for(int i = 0; i < spec->main_vector.size; i++)
 	{
-		//Check if the particle is in the correct region
 		int iy = spec->main_vector.data[i].iy;
 
-		// First shift particle left (if applicable), then check for particles leaving the box
+		// First shift particle left (if applicable), then check for particles leaving the simulation space
 		if (spec->moving_window)
 		{
 			if ((spec->iter * spec->dt) > (spec->dx[0] * (spec->n_move + 1)))
@@ -898,11 +825,12 @@ void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *low
 			}
 		} else
 		{
-			//Periodic boundaries for both axis
+			// Periodic boundaries for X axis
 			if (spec->main_vector.data[i].ix < 0) spec->main_vector.data[i].ix += nx0;
 			else if (spec->main_vector.data[i].ix >= nx0) spec->main_vector.data[i].ix -= nx0;
 		}
 
+		// Periodic boudaries for Y axis
 		if (spec->main_vector.data[i].iy < 0) spec->main_vector.data[i].iy += nx1;
 		else if (spec->main_vector.data[i].iy >= nx1) spec->main_vector.data[i].iy -= nx1;
 
@@ -928,14 +856,12 @@ void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *low
 		const int range[][2] = {{spec->nx[0] - 1, spec->nx[0]}, {limits_y[0], limits_y[1]}};
 		spec_inject_particles(spec, range);
 	}
-
-	//if(spec->iter % 20 == 0) spec_sort(spec, 4);
 }
 
 /*********************************************************************************************
  Charge Deposition
  *********************************************************************************************/
-
+// Deposit the particle charge over the simulation grid
 void spec_deposit_charge(const t_species *spec, t_part_data *charge)
 {
 	int i;
@@ -963,6 +889,7 @@ void spec_deposit_charge(const t_species *spec, t_part_data *charge)
  Diagnostics
  *********************************************************************************************/
 
+// Save the deposit particle charge in ZDF file
 void spec_rep_charge(t_part_data *restrict charge, const int true_nx[2], const t_fld box[2],
 		const int iter_num, const float dt, const bool moving_window, const char path[128])
 {
@@ -993,17 +920,14 @@ void spec_rep_charge(t_part_data *restrict charge, const int true_nx[2], const t
 	t_zdf_grid_axis axis[2];
 	axis[0] = (t_zdf_grid_axis) {.min = 0.0, .max = box[0], .label = "x_1",
 									.units = "c/\\omega_p"};
-
 	axis[1] = (t_zdf_grid_axis) {.min = 0.0, .max = box[1], .label = "x_2",
 									.units = "c/\\omega_p"};
 
 	t_zdf_grid_info info = {.ndims = 2, .label = "charge", .units = "n_e", .axis = axis};
-
 	info.nx[0] = true_nx[0];
 	info.nx[1] = true_nx[1];
 
 	t_zdf_iteration iter = {.n = iter_num, .t = iter_num * dt, .time_units = "1/\\omega_p"};
-
 	zdf_save_grid(buf, &info, &iter, path);
 
 	free(buf);
@@ -1056,6 +980,7 @@ const char* spec_pha_axis_units(int quant)
 	return ("");
 }
 
+// Deposit the particles over the phase space
 void spec_deposit_pha(const t_species *spec, const int rep_type, const int pha_nx[],
 		const float pha_range[][2], float *restrict buf)
 {
@@ -1128,6 +1053,7 @@ void spec_deposit_pha(const t_species *spec, const int rep_type, const int pha_n
 	}
 }
 
+// Save the phase space in a ZDF file
 void spec_rep_pha(const t_part_data *buffer, const int rep_type, const int pha_nx[],
 		const float pha_range[][2], const int iter_num, const float dt, const char path[128])
 {
@@ -1162,6 +1088,7 @@ void spec_rep_pha(const t_part_data *buffer, const int rep_type, const int pha_n
 	zdf_save_grid(buffer, &info, &iter, path);
 }
 
+// Calculate the energy of the particles
 void spec_calculate_energy(t_species *spec)
 {
 	t_particle_vector *restrict part = &spec->main_vector;
