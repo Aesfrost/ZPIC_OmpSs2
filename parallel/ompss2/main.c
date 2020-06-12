@@ -22,7 +22,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-
 #include "zpic.h"
 #include "simulation.h"
 #include "emf.h"
@@ -42,7 +41,6 @@ int main(int argc, const char *argv[])
 	}
 
 	// Initialize simulation
-	#pragma acc set device_num(0) // Dummy operation to work with the PGI Compiler
 	t_simulation sim;
 	sim_init(&sim, atoi(argv[1]));
 

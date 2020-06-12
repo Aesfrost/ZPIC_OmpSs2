@@ -57,8 +57,7 @@ void sim_create_dir(t_simulation *sim)
 void sim_new(t_simulation *sim, int nx[2], float box[2], float dt, float tmax, int ndump,
 		t_species *species, int n_species, char name[64], int n_regions)
 {
-	t_particle_vector *restrict part;
-	double usq, gamma;
+	#pragma acc set device_num(0) // Dummy operation to work with the PGI Compiler
 
 	// Simulation parameters
 	sim->iter = 0;

@@ -51,6 +51,8 @@ double spec_perf(void)
 // Manual reallocation of buffers
 void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const int type_size)
 {
+	#pragma acc set device_num(0) // Dummy operation to work with the PGI Compiler
+	
 	if(*ptr == NULL) *ptr = malloc(new_size * type_size);
 	else
 	{
