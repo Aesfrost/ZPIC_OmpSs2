@@ -18,7 +18,6 @@
 #include "emf.h"
 #include "zdf.h"
 #include "timer.h"
-#include "csv_handler.h"
 
 static double _emf_time = 0.0;
 
@@ -627,7 +626,7 @@ void emf_move_window(t_emf *emf)
 	}
 }
 
-// Perform the local integration of the fields
+// Perform the local integration of the fields (and post processing)
 void emf_advance(t_emf *emf, const t_current *current)
 {
 	uint64_t t0 = timer_ticks();

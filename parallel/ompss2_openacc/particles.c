@@ -1,11 +1,13 @@
-/*
- *  particles.c
- *  zpic
- *
- *  Created by Ricardo Fonseca on 11/8/10.
- *  Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
- *
- */
+/*********************************************************************************************
+ ZPIC
+ particles.c
+
+ Created by Ricardo Fonseca on 11/8/10.
+ Modified by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
 
 #include <stdlib.h>
 #include <math.h>
@@ -17,10 +19,9 @@
 #include "random.h"
 #include "emf.h"
 #include "current.h"
-
+#include "utilities.h"
 #include "zdf.h"
 #include "timer.h"
-#include "csv_handler.h"
 
 static double _spec_time = 0.0;
 static double _spec_npush = 0.0;
@@ -46,41 +47,23 @@ double spec_perf(void)
 /*********************************************************************************************
  Vector Handling
  *********************************************************************************************/
-void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const int type_size)
-{
-	#pragma acc set device_num(0)
-	void *restrict temp = malloc(new_size * type_size);
-
-	if(temp)
-	{
-		memcpy(temp, *ptr, old_size * type_size);
-		free(*ptr);
-		*ptr = temp;
-	}else
-	{
-		printf("Error in allocating particle vector. Exiting...\n");
-		exit(1);
-	}
-}
-
+// Convert SoA vector into AoS vector, or vice-versa
 void convert_vector(t_particle_vector *restrict vector, enum vector_type final_type)
 {
-	#pragma acc set device_num(0)
-
 	if(vector->type != final_type)
 	{
 		vector->type = final_type;
 
 		switch (final_type) {
 			case SoA:
-				vector->ix = malloc(vector->size_max * sizeof(int));
-				vector->iy = malloc(vector->size_max * sizeof(int));
-				vector->x = malloc(vector->size_max * sizeof(t_fld));
-				vector->y = malloc(vector->size_max * sizeof(t_fld));
-				vector->ux = malloc(vector->size_max * sizeof(t_fld));
-				vector->uy = malloc(vector->size_max * sizeof(t_fld));
-				vector->uz = malloc(vector->size_max * sizeof(t_fld));
-				vector->safe_to_delete = malloc(vector->size_max * sizeof(bool));
+				vector->ix = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(int));
+				vector->iy = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(int));
+				vector->x = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_fld));
+				vector->y = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_fld));
+				vector->ux = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_fld));
+				vector->uy = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_fld));
+				vector->uz = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_fld));
+				vector->safe_to_delete = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(bool));
 
 				for(int i = 0; i < vector->size; i++)
 				{
@@ -94,12 +77,12 @@ void convert_vector(t_particle_vector *restrict vector, enum vector_type final_t
 					vector->safe_to_delete[i] = vector->part[i].safe_to_delete;
 				}
 
-				free(vector->part);
+				free_align_buffer(vector->part);
 				break;
 
 			case AoS:
 
-				vector->part = malloc(vector->size_max * sizeof(t_part));
+				vector->part = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_part));
 
 				for(int i = 0; i < vector->size; i++)
 				{
@@ -113,14 +96,14 @@ void convert_vector(t_particle_vector *restrict vector, enum vector_type final_t
 					vector->part[i].safe_to_delete = vector->safe_to_delete[i];
 				}
 
-				free(vector->ix);
-				free(vector->iy);
-				free(vector->x);
-				free(vector->y);
-				free(vector->ux);
-				free(vector->uy);
-				free(vector->uz);
-				free(vector->safe_to_delete);
+				free_align_buffer(vector->ix);
+				free_align_buffer(vector->iy);
+				free_align_buffer(vector->x);
+				free_align_buffer(vector->y);
+				free_align_buffer(vector->ux);
+				free_align_buffer(vector->uy);
+				free_align_buffer(vector->uz);
+				free_align_buffer(vector->safe_to_delete);
 				break;
 			default:
 				break;
@@ -128,6 +111,10 @@ void convert_vector(t_particle_vector *restrict vector, enum vector_type final_t
 	}
 }
 
+/**
+ * Add to the content of the temporary buffers into the particles vector
+ * @param spec  Particle species
+ */
 void spec_update_main_vector(t_species *spec)
 {
 	int i = 0, j, k;
@@ -139,7 +126,8 @@ void spec_update_main_vector(t_species *spec)
 	if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
 	{
 		spec->main_vector.size_max = ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024;
-		realloc_vector(&spec->main_vector.part, spec->main_vector.size, spec->main_vector.size_max, sizeof(t_part));
+		realloc_align_buffer((void **) &spec->main_vector.part, spec->main_vector.size, spec->main_vector.size_max,
+								sizeof(t_part), DEFAULT_ALIGNMENT);
 	}
 
 	//Loop through all the 2 temp buffers
@@ -219,15 +207,13 @@ void spec_update_main_vector(t_species *spec)
  */
 void spec_add_to_vector(t_particle_vector *restrict vector, t_part part)
 {
-	#pragma acc set device_num(0)
-
 	switch (vector->type)
 	{
 		case AoS:
 			if (vector->size + 1 > vector->size_max)
 			{
 				vector->size_max = vector->size_max + 1024;
-				realloc_vector(&vector->part, vector->size, vector->size_max, sizeof(t_part));
+				realloc_align_buffer((void **) &vector->part, vector->size, vector->size_max, sizeof(t_part), DEFAULT_ALIGNMENT);
 			}
 
 			vector->part[vector->size] = part;
@@ -237,15 +223,15 @@ void spec_add_to_vector(t_particle_vector *restrict vector, t_part part)
 			if (vector->size + 1 > vector->size_max)
 			{
 				vector->size_max = vector->size_max + 1024;
-				realloc_vector(&vector->ix, vector->size, vector->size_max, sizeof(int));
-				realloc_vector(&vector->iy, vector->size, vector->size_max, sizeof(int));
-				realloc_vector(&vector->x, vector->size, vector->size_max, sizeof(t_fld));
-				realloc_vector(&vector->y, vector->size, vector->size_max, sizeof(t_fld));
-				realloc_vector(&vector->ux, vector->size, vector->size_max, sizeof(t_fld));
-				realloc_vector(&vector->uy, vector->size, vector->size_max, sizeof(t_fld));
-				realloc_vector(&vector->uz, vector->size, vector->size_max, sizeof(t_fld));
-				realloc_vector(&vector->safe_to_delete, vector->size, vector->size_max,
-						sizeof(bool));
+				realloc_align_buffer((void **) &vector->ix, vector->size, vector->size_max, sizeof(int), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &vector->iy, vector->size, vector->size_max, sizeof(int), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &vector->x, vector->size, vector->size_max, sizeof(t_fld), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &vector->y, vector->size, vector->size_max, sizeof(t_fld), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &vector->ux, vector->size, vector->size_max, sizeof(t_fld), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &vector->uy, vector->size, vector->size_max, sizeof(t_fld), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &vector->uz, vector->size, vector->size_max, sizeof(t_fld), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &vector->safe_to_delete, vector->size, vector->size_max, sizeof(bool),
+										DEFAULT_ALIGNMENT);
 			}
 
 			vector->ix[vector->size] = part.ix;
@@ -473,6 +459,7 @@ void spec_set_x(t_species *spec, const int range[][2])
 	free(poscell);
 }
 
+// Inject the particles in the simulation
 void spec_inject_particles(t_species *spec, const int range[][2])
 {
 	int start = spec->main_vector.size;
@@ -480,26 +467,34 @@ void spec_inject_particles(t_species *spec, const int range[][2])
 	// Get maximum number of particles to inject
 	int np_inj = (range[0][1] - range[0][0]) * (range[1][1] - range[1][0]) * spec->ppc[0] * spec->ppc[1];
 
-	#pragma acc set device_num(0)
-
 	// Check if buffer is large enough and if not reallocate
 	if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
 	{
 		spec->main_vector.size_max = ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024;
 
-		switch (spec->main_vector.type) {
+		switch (spec->main_vector.type)
+		{
 			case AoS:
-				realloc_vector(&spec->main_vector.part, spec->main_vector.size, spec->main_vector.size_max, sizeof(t_part));
+				realloc_align_buffer((void **) &spec->main_vector.part, spec->main_vector.size, spec->main_vector.size_max,
+										sizeof(t_part), DEFAULT_ALIGNMENT);
 				break;
 			case SoA:
-				realloc_vector(&spec->main_vector.ix, spec->main_vector.size, spec->main_vector.size_max, sizeof(int));
-				realloc_vector(&spec->main_vector.iy, spec->main_vector.size, spec->main_vector.size_max, sizeof(int));
-				realloc_vector(&spec->main_vector.x, spec->main_vector.size, spec->main_vector.size_max, sizeof(t_fld));
-				realloc_vector(&spec->main_vector.y, spec->main_vector.size, spec->main_vector.size_max, sizeof(t_fld));
-				realloc_vector(&spec->main_vector.ux, spec->main_vector.size, spec->main_vector.size_max, sizeof(t_fld));
-				realloc_vector(&spec->main_vector.uy, spec->main_vector.size, spec->main_vector.size_max, sizeof(t_fld));
-				realloc_vector(&spec->main_vector.uz, spec->main_vector.size, spec->main_vector.size_max, sizeof(t_fld));
-				realloc_vector(&spec->main_vector.safe_to_delete, spec->main_vector.size, spec->main_vector.size_max, sizeof(bool));
+				realloc_align_buffer((void **) &spec->main_vector.ix, spec->main_vector.size, spec->main_vector.size_max,
+										sizeof(int), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &spec->main_vector.iy, spec->main_vector.size, spec->main_vector.size_max,
+										sizeof(int), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &spec->main_vector.x, spec->main_vector.size, spec->main_vector.size_max,
+										sizeof(t_fld), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &spec->main_vector.y, spec->main_vector.size, spec->main_vector.size_max,
+										sizeof(t_fld), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &spec->main_vector.ux, spec->main_vector.size, spec->main_vector.size_max,
+										sizeof(t_fld), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &spec->main_vector.uy, spec->main_vector.size, spec->main_vector.size_max,
+										sizeof(t_fld), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &spec->main_vector.uz, spec->main_vector.size, spec->main_vector.size_max,
+										sizeof(t_fld), DEFAULT_ALIGNMENT);
+				realloc_align_buffer((void **) &spec->main_vector.safe_to_delete, spec->main_vector.size,
+										spec->main_vector.size_max, sizeof(bool), DEFAULT_ALIGNMENT);
 				break;
 		}
 	}
@@ -512,12 +507,11 @@ void spec_inject_particles(t_species *spec, const int range[][2])
 
 }
 
+// Constructor
 void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc[],
 		const t_part_data *ufl, const t_part_data *uth, const int nx[], t_part_data box[],
 		const float dt, t_density *density, const int region_size)
 {
-	#pragma acc set device_num(0)
-
 	int i, npc;
 
 	// Species name
@@ -543,7 +537,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 
 	// Initialize particle buffer
 	spec->main_vector.size_max = (npc * region_size * nx[0] / 1024 + 1) * 1024;
-	spec->main_vector.part = malloc(spec->main_vector.size_max * sizeof(t_part));
+	spec->main_vector.part = alloc_align_buffer(DEFAULT_ALIGNMENT, spec->main_vector.size_max * sizeof(t_part));
 	spec->main_vector.size = 0;
 	spec->main_vector.type = AoS;
 
@@ -551,7 +545,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	for (i = 0; i < 2; i++)
 	{
 		spec->temp_buffer[i].size_max = (npc * nx[0] / 1024 + 1) * 1024;
-		spec->temp_buffer[i].part = malloc(spec->temp_buffer[i].size_max * sizeof(t_part));
+		spec->temp_buffer[i].part = alloc_align_buffer(DEFAULT_ALIGNMENT, spec->temp_buffer[i].size_max * sizeof(t_part));
 		spec->temp_buffer[i].size = 0;
 		spec->temp_buffer[i].type = AoS;
 	}
@@ -601,37 +595,41 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	// Sort
 	spec->n_bins_x = ceil((float) spec->nx[0] / BIN_SIZE);
 	spec->n_bins_y = ceil((float) spec->nx[1] / BIN_SIZE);
-
+	spec->bin_idx = NULL;
+	spec->bin_np = NULL;
 }
 
 void spec_delete(t_species *spec)
 {
-	if(spec->main_vector.type == AoS) free(spec->main_vector.part);
+	if(spec->main_vector.type == AoS) free_align_buffer(spec->main_vector.part);
 	else if(spec->main_vector.type == SoA)
 	{
-		free(spec->main_vector.ix);
-		free(spec->main_vector.iy);
-		free(spec->main_vector.x);
-		free(spec->main_vector.y);
-		free(spec->main_vector.ux);
-		free(spec->main_vector.uy);
-		free(spec->main_vector.uz);
-		free(spec->main_vector.safe_to_delete);
+		free_align_buffer(spec->main_vector.ix);
+		free_align_buffer(spec->main_vector.iy);
+		free_align_buffer(spec->main_vector.x);
+		free_align_buffer(spec->main_vector.y);
+		free_align_buffer(spec->main_vector.ux);
+		free_align_buffer(spec->main_vector.uy);
+		free_align_buffer(spec->main_vector.uz);
+		free_align_buffer(spec->main_vector.safe_to_delete);
 	}
 
 	for(int n = 0; n < 2; n++)
-		if(spec->temp_buffer[n].type == AoS) free(spec->temp_buffer[n].part);
+		if(spec->temp_buffer[n].type == AoS) free_align_buffer(spec->temp_buffer[n].part);
 		else
 		{
-			free(spec->temp_buffer[n].ix);
-			free(spec->temp_buffer[n].iy);
-			free(spec->temp_buffer[n].x);
-			free(spec->temp_buffer[n].y);
-			free(spec->temp_buffer[n].ux);
-			free(spec->temp_buffer[n].uy);
-			free(spec->temp_buffer[n].uz);
-			free(spec->temp_buffer[n].safe_to_delete);
+			free_align_buffer(spec->temp_buffer[n].ix);
+			free_align_buffer(spec->temp_buffer[n].iy);
+			free_align_buffer(spec->temp_buffer[n].x);
+			free_align_buffer(spec->temp_buffer[n].y);
+			free_align_buffer(spec->temp_buffer[n].ux);
+			free_align_buffer(spec->temp_buffer[n].uy);
+			free_align_buffer(spec->temp_buffer[n].uz);
+			free_align_buffer(spec->temp_buffer[n].safe_to_delete);
 		}
+
+	if(spec->bin_idx) free(spec->bin_idx);
+	if(spec->bin_np) free(spec->bin_np);
 
 	spec->main_vector.size = -1;
 	spec->temp_buffer[0].size = -1;
@@ -641,7 +639,7 @@ void spec_delete(t_species *spec)
 /*********************************************************************************************
  Current deposition
  *********************************************************************************************/
-
+// Current deposition (Esirkepov method)
 void dep_current_esk(int ix0, int iy0, int di, int dj, t_part_data x0, t_part_data y0,
 		t_part_data x1, t_part_data y1, t_part_data qvx, t_part_data qvy, t_part_data qvz,
 		t_current *current)
@@ -732,6 +730,7 @@ void dep_current_esk(int ix0, int iy0, int di, int dj, t_part_data x0, t_part_da
 
 }
 
+// Current deposition (adapted Villasenor-Bunemann method). CPU Task
 void dep_current_zamb(int ix, int iy, int di, int dj, float x0, float y0, float dx, float dy,
 		float qnx, float qny, float qvz, t_current *current)
 {
@@ -964,7 +963,7 @@ void dep_current_zamb(int ix, int iy, int di, int dj, float x0, float y0, float 
 /*********************************************************************************************
  Particle advance
  *********************************************************************************************/
-
+// EM fields interpolation (CPU)
 void interpolate_fld(const t_vfld *restrict const E, const t_vfld *restrict const B, const int nrow,
 		const t_part *restrict const part, t_vfld *restrict const Ep, t_vfld *restrict const Bp, const int offset)
 {
@@ -1010,6 +1009,7 @@ int ltrim(t_part_data x)
 	return (x >= 1.0f) - (x < 0.0f);
 }
 
+// Particle advance~(CPU)
 void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[2])
 {
 	int i;
@@ -1065,11 +1065,6 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 		utx = ux + Ep.x;
 		uty = uy + Ep.y;
 		utz = uz + Ep.z;
-
-		// Get time centered energy
-		utsq = utx * utx + uty * uty + utz * utz;
-		gamma = sqrtf(1.0f + utsq);
-		spec->energy += utsq / (gamma + 1);
 
 		// Perform first half of the rotation
 		gtem = tem / sqrtf(1.0f + utx * utx + uty * uty + utz * utz);
@@ -1133,13 +1128,13 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 	}
 }
 
+// Particle post processing (Transfer particles between regions and move the simulation
+// window, if applicable). CPU Task
 void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *lower_spec,
 		int limits_y[2])
 {
 	const int nx0 = spec->nx[0];
 	const int nx1 = spec->nx[1];
-
-	#pragma acc set device_num(0)
 
 	for(int i = 0; i < spec->main_vector.size; i++)
 	{
@@ -1171,12 +1166,12 @@ void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *low
 		if (iy < limits_y[0])
 		{
 			spec_add_to_vector(&lower_spec->temp_buffer[1], spec->main_vector.part[i]);
-			spec->main_vector.part[i].safe_to_delete = true;
+			spec->main_vector.part[i].safe_to_delete = true; // Mark the particle as invalid
 
 		} else if (iy >= limits_y[1])
 		{
 			spec_add_to_vector(&upper_spec->temp_buffer[0], spec->main_vector.part[i]);
-			spec->main_vector.part[i].safe_to_delete = true;
+			spec->main_vector.part[i].safe_to_delete = true; // Mark the particle as invalid
 		}
 	}
 
@@ -1196,7 +1191,7 @@ void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *low
 /*********************************************************************************************
  Charge Deposition
  *********************************************************************************************/
-
+// Deposit the particle charge over the simulation grid
 void spec_deposit_charge(const t_species *spec, t_part_data *charge)
 {
 	int i;
@@ -1248,141 +1243,112 @@ void spec_deposit_charge(const t_species *spec, t_part_data *charge)
  Diagnostics
  *********************************************************************************************/
 
-void spec_rep_particles(const t_species *spec)
+// Save the deposit particle charge in ZDF file
+void spec_rep_charge(t_part_data *restrict charge, const int true_nx[2], const t_fld box[2],
+		const int iter_num, const float dt, const bool moving_window, const char path[128])
 {
+	size_t buf_size = true_nx[0] * true_nx[1] * sizeof(t_part_data);
+	t_part_data *restrict buf = malloc(buf_size);
 
-	t_zdf_file part_file;
+	// Correct boundary values
+	// x
+	if (!moving_window) for (int j = 0; j < true_nx[1] + 1; j++)
+		charge[0 + j * (true_nx[0] + 1)] += charge[true_nx[0] + j * (true_nx[0] + 1)];
 
-	int i;
+	// y - Periodic boundaries
+	for (int i = 0; i < true_nx[0] + 1; i++)
+		charge[i] += charge[i + true_nx[1] * (true_nx[0] + 1)];
 
-	const char *quants[] = {"x1", "x2", "u1", "u2", "u3"};
+	t_part_data *restrict b = buf;
+	t_part_data *restrict c = charge;
 
-	const char *units[] = {"c/\\omega_p", "c/\\omega_p", "c", "c", "c"};
-
-	t_zdf_iteration iter = {.n = spec->iter, .t = spec->iter * spec->dt, .time_units = "1/\\omega_p"};
-
-	// Allocate buffer for positions
-
-	t_zdf_part_info info = {.name = (char*) spec->name, .nquants = 5, .quants = (char**) quants,
-							.units = (char**) units, .np = spec->main_vector.size};
-
-	// Create file and add description
-	zdf_part_file_open(&part_file, &info, &iter, "PARTICLES");
-
-	// Add positions and generalized velocities
-	size_t size = (spec->main_vector.size) * sizeof(float);
-	float *data = malloc(size);
-
-	// x1
-	for (i = 0; i < spec->main_vector.size; i++)
-		data[i] = (spec->n_move + spec->main_vector.part[i].ix + spec->main_vector.part[i].x)
-				* spec->dx[0];
-	zdf_part_file_add_quant(&part_file, quants[0], data, spec->main_vector.size);
-
-	// x2
-	for (i = 0; i < spec->main_vector.size; i++)
-		data[i] = (spec->main_vector.part[i].iy + spec->main_vector.part[i].y) * spec->dx[1];
-	zdf_part_file_add_quant(&part_file, quants[1], data, spec->main_vector.size);
-
-	// ux
-	for (i = 0; i < spec->main_vector.size; i++)
-		data[i] = spec->main_vector.part[i].ux;
-	zdf_part_file_add_quant(&part_file, quants[2], data, spec->main_vector.size);
-
-	// uy
-	for (i = 0; i < spec->main_vector.size; i++)
-		data[i] = spec->main_vector.part[i].uy;
-	zdf_part_file_add_quant(&part_file, quants[3], data, spec->main_vector.size);
-
-	// uz
-	for (i = 0; i < spec->main_vector.size; i++)
-		data[i] = spec->main_vector.part[i].uz;
-	zdf_part_file_add_quant(&part_file, quants[4], data, spec->main_vector.size);
-
-	free(data);
-
-	zdf_close_file(&part_file);
-}
-
-void spec_rep_charge(const t_species *spec)
-{
-	t_part_data *buf, *charge, *b, *c;
-	size_t size;
-	int i, j;
-
-	// Add 1 guard cell to the upper boundary
-	size = (spec->nx[0] + 1) * (spec->nx[1] + 1) * sizeof(t_part_data);
-	charge = malloc(size);
-	memset(charge, 0, size);
-
-	// Deposit the charge
-	spec_deposit_charge(spec, charge);
-
-	// Compact the data to save the file (throw away guard cells)
-	size = (spec->nx[0]) * (spec->nx[1]);
-	buf = malloc(size * sizeof(float));
-
-	b = buf;
-	c = charge;
-	for (j = 0; j < spec->nx[1]; j++)
+	for (int j = 0; j < true_nx[1]; j++)
 	{
-		for (i = 0; i < spec->nx[0]; i++)
-		{
+		for (int i = 0; i < true_nx[0]; i++)
 			b[i] = c[i];
-		}
-		b += spec->nx[0];
-		c += spec->nx[0] + 1;
+
+		b += true_nx[0];
+		c += true_nx[0] + 1;
 	}
 
-	free(charge);
-
 	t_zdf_grid_axis axis[2];
-	axis[0] = (t_zdf_grid_axis) {.min = 0.0, .max = spec->box[0], .label = "x_1",
+	axis[0] = (t_zdf_grid_axis) {.min = 0.0, .max = box[0], .label = "x_1",
 									.units = "c/\\omega_p"};
 
-	axis[1] = (t_zdf_grid_axis) {.min = 0.0, .max = spec->box[1], .label = "x_2",
+	axis[1] = (t_zdf_grid_axis) {.min = 0.0, .max = box[1], .label = "x_2",
 									.units = "c/\\omega_p"};
 
 	t_zdf_grid_info info = {.ndims = 2, .label = "charge", .units = "n_e", .axis = axis};
 
-	info.nx[0] = spec->nx[0];
-	info.nx[1] = spec->nx[1];
+	info.nx[0] = true_nx[0];
+	info.nx[1] = true_nx[1];
 
-	t_zdf_iteration iter = {.n = spec->iter, .t = spec->iter * spec->dt, .time_units = "1/\\omega_p"};
+	t_zdf_iteration iter = {.n = iter_num, .t = iter_num * dt, .time_units = "1/\\omega_p"};
 
-	zdf_save_grid(buf, &info, &iter, spec->name);
+	zdf_save_grid(buf, &info, &iter, path);
 
 	free(buf);
+
 }
 
 void spec_pha_axis(const t_species *spec, int i0, int np, int quant, float *axis)
 {
 	int i;
 
-	switch (quant)
+	if(spec->main_vector.type == AoS)
 	{
-		case X1:
-			for (i = 0; i < np; i++)
-				axis[i] = (spec->main_vector.part[i0 + i].x + spec->main_vector.part[i0 + i].ix)
-						* spec->dx[0];
-			break;
-		case X2:
-			for (i = 0; i < np; i++)
-				axis[i] = (spec->main_vector.part[i0 + i].y + spec->main_vector.part[i0 + i].iy)
-						* spec->dx[1];
-			break;
-		case U1:
-			for (i = 0; i < np; i++)
-				axis[i] = spec->main_vector.part[i0 + i].ux;
-			break;
-		case U2:
-			for (i = 0; i < np; i++)
-				axis[i] = spec->main_vector.part[i0 + i].uy;
-			break;
-		case U3:
-			for (i = 0; i < np; i++)
-				axis[i] = spec->main_vector.part[i0 + i].uz;
-			break;
+		switch (quant)
+		{
+			case X1:
+				for (i = 0; i < np; i++)
+					axis[i] = (spec->main_vector.part[i0 + i].x + spec->main_vector.part[i0 + i].ix)
+							* spec->dx[0];
+				break;
+			case X2:
+				for (i = 0; i < np; i++)
+					axis[i] = (spec->main_vector.part[i0 + i].y + spec->main_vector.part[i0 + i].iy)
+							* spec->dx[1];
+				break;
+			case U1:
+				for (i = 0; i < np; i++)
+					axis[i] = spec->main_vector.part[i0 + i].ux;
+				break;
+			case U2:
+				for (i = 0; i < np; i++)
+					axis[i] = spec->main_vector.part[i0 + i].uy;
+				break;
+			case U3:
+				for (i = 0; i < np; i++)
+					axis[i] = spec->main_vector.part[i0 + i].uz;
+				break;
+		}
+	}else if(spec->main_vector.type == SoA)
+	{
+		switch (quant)
+		{
+			case X1:
+				for (i = 0; i < np; i++)
+					axis[i] = (spec->main_vector.x[i0 + i] + spec->main_vector.ix[i0 + i])
+							* spec->dx[0];
+				break;
+			case X2:
+				for (i = 0; i < np; i++)
+					axis[i] = (spec->main_vector.y[i0 + i] + spec->main_vector.iy[i0 + i])
+							* spec->dx[1];
+				break;
+			case U1:
+				for (i = 0; i < np; i++)
+					axis[i] = spec->main_vector.ux[i0 + i];
+				break;
+			case U2:
+				for (i = 0; i < np; i++)
+					axis[i] = spec->main_vector.uy[i0 + i];
+				break;
+			case U3:
+				for (i = 0; i < np; i++)
+					axis[i] = spec->main_vector.uz[i0 + i];
+				break;
+		}
 	}
 }
 
@@ -1402,6 +1368,7 @@ const char* spec_pha_axis_units(int quant)
 	return ("");
 }
 
+// Deposit the particles over the phase space
 void spec_deposit_pha(const t_species *spec, const int rep_type, const int pha_nx[],
 		const float pha_range[][2], float *restrict buf)
 {
@@ -1474,19 +1441,12 @@ void spec_deposit_pha(const t_species *spec, const int rep_type, const int pha_n
 	}
 }
 
-void spec_rep_pha(const t_species *spec, const int rep_type, const int pha_nx[],
-		const float pha_range[][2])
+// Save the phase space in a ZDF file
+void spec_rep_pha(const t_part_data *buffer, const int rep_type, const int pha_nx[],
+		const float pha_range[][2], const int iter_num, const float dt, const char path[128])
 {
-
 	char const *const pha_ax_name[] = {"x1", "x2", "x3", "u1", "u2", "u3"};
 	char pha_name[64];
-
-	// Allocate phasespace buffer
-	float *restrict buf = malloc(pha_nx[0] * pha_nx[1] * sizeof(float));
-	memset(buf, 0, pha_nx[0] * pha_nx[1] * sizeof(float));
-
-	// Deposit the phasespace
-	spec_deposit_pha(spec, rep_type, pha_nx, pha_range, buf);
 
 	// save the data in hdf5 format
 	int quant1 = rep_type & 0x000F;
@@ -1511,31 +1471,33 @@ void spec_rep_pha(const t_species *spec, const int rep_type, const int pha_nx[],
 	info.nx[0] = pha_nx[0];
 	info.nx[1] = pha_nx[1];
 
-	t_zdf_iteration iter = {.n = spec->iter, .t = spec->iter * spec->dt, .time_units = "1/\\omega_p"};
+	t_zdf_iteration iter = {.n = iter_num, .t = iter_num * dt, .time_units = "1/\\omega_p"};
 
-	zdf_save_grid(buf, &info, &iter, spec->name);
-
-	// Free temp. buffer
-	free(buf);
+	zdf_save_grid(buffer, &info, &iter, path);
 }
 
-void spec_report(const t_species *spec, const int rep_type, const int pha_nx[],
-		const float pha_range[][2])
+// Calculate time centre energy
+void spec_calculate_energy(t_species *spec)
 {
+	spec->energy = 0;
 
-	switch (rep_type & 0xF000)
+	if(spec->main_vector.type == AoS)
 	{
-		case CHARGE:
-			spec_rep_charge(spec);
-			break;
-
-		case PHA:
-			spec_rep_pha(spec, rep_type, pha_nx, pha_range);
-			break;
-
-		case PARTICLES:
-			spec_rep_particles(spec);
-			break;
+		for (int i = 0; i < spec->main_vector.size; i++)
+		{
+			t_part_data usq = spec->main_vector.part[i].ux * spec->main_vector.part[i].ux + spec->main_vector.part[i].uy * spec->main_vector.part[i].uy
+					+ spec->main_vector.part[i].uz * spec->main_vector.part[i].uz;
+			t_part_data gamma = sqrtf(1 + usq);
+			spec->energy += usq / (gamma + 1.0);
+		}
+	}else if(spec->main_vector.type == SoA)
+	{
+		for (int i = 0; i < spec->main_vector.size; i++)
+		{
+			t_part_data usq = spec->main_vector.ux[i] * spec->main_vector.ux[i] + spec->main_vector.uy[i] * spec->main_vector.uy[i]
+					+ spec->main_vector.uz[i] * spec->main_vector.uz[i];
+			t_part_data gamma = sqrtf(1 + usq);
+			spec->energy += usq / (gamma + 1.0);
+		}
 	}
-
 }

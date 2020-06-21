@@ -32,9 +32,15 @@
 
 int main(int argc, const char *argv[])
 {
-	if(argc != 4)
+	if(argc == 6)
 	{
-		fprintf(stderr, "Wrong arguments. Expected: <number of regions> <percentage of regions using GPU> <number of GPU regions>");
+		SORT_FREQUENCY = atoi(argv[4]);
+		BIN_SIZE = atoi(argv[5]);
+
+	}else if(argc != 4)
+	{
+		fprintf(stderr, "Wrong arguments. Expected: <number of regions> <percentage of regions using GPU> "
+				"<number of GPU regions>. Optional args: <sort frequency> <bin size>");
 		exit(1);
 	}
 
@@ -56,12 +62,12 @@ int main(int argc, const char *argv[])
 //		if(n == 2) break;
 
 //		fprintf(stderr, "n = %i, t = %f\n", n, t);
-
-//		if (report(n, sim.ndump))
-//		{
-//			#pragma oss taskwait
-//			sim_report(&sim);
-//		}
+//
+		if (report(n, sim.ndump))
+		{
+			#pragma oss taskwait
+			sim_report(&sim);
+		}
 
 		sim_iter(&sim);
 	}
@@ -74,7 +80,7 @@ int main(int argc, const char *argv[])
 	fprintf(stderr, "\nSimulation ended.\n\n");
 
 	// Simulation times
-	sim_timings(&sim, t0, t1);
+	sim_timings(&sim, t0, t1, n);
 
 	// Cleanup data
 	sim_delete(&sim);

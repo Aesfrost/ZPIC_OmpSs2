@@ -1,3 +1,14 @@
+/*********************************************************************************************
+ ZPIC
+ region.c
+
+ Created by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
+
 #include "region.h"
 
 #include <math.h>
@@ -5,7 +16,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+
 #include "timer.h"
+#include "utilities.h"
 
 static int _n_regions = 0;
 static int _effective_gpu_regions = 0;
@@ -23,6 +36,8 @@ int get_gpu_regions_effective()
 /*********************************************************************************************
  Initialisation
  *********************************************************************************************/
+
+// Build a double-linked list of the regions recursively
 void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, t_species *spec,
 		float box[], float dt, float gpu_percentage, int n_gpu_regions, t_region *prev_region)
 {
@@ -62,7 +77,6 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 	region->species = (t_species*) malloc(n_spec * sizeof(t_species));
 	assert(region->species);
 
-	#pragma acc set device_num(0)
 	int start, end;
 	for (int n = 0; n < n_spec; ++n)
 	{
@@ -94,12 +108,12 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 		memcpy(particles->part, spec[n].main_vector.part, particles->size * sizeof(t_part));
 
 		spec[n].main_vector.size -= particles->size;
-		void *restrict ptr = malloc(spec[n].main_vector.size * sizeof(t_part));
+		void *restrict ptr = alloc_align_buffer(DEFAULT_ALIGNMENT, spec[n].main_vector.size * sizeof(t_part));
 
 		if(ptr)
 		{
 			memcpy(ptr, spec[n].main_vector.part + particles->size, spec[n].main_vector.size * sizeof(t_part));
-			free(spec[n].main_vector.part);
+			free_align_buffer(spec[n].main_vector.part);
 			spec[n].main_vector.part = ptr;
 		}
 	}
@@ -185,6 +199,8 @@ void region_add_laser(t_region *region, t_emf_laser *laser)
 		p = p->next;
 	} while (p->id != 0);
 
+	#pragma oss taskwait
+
 	p = region;
 	do
 	{
@@ -196,6 +212,7 @@ void region_add_laser(t_region *region, t_emf_laser *laser)
 	do
 	{
 		emf_update_gc_y(&p->local_emf);
+		#pragma oss taskwait
 		emf_update_gc_x(&p->local_emf);
 		p = p->next;
 	} while (p->id != 0);
@@ -253,7 +270,8 @@ void region_spec_update(t_region *region)
 		for (int i = 0; i < region->n_species; i++)
 		{
 			spec_post_processing_2_openacc(&region->species[i], region->limits_y);
-			if(region->iter % SORT_ITER == 0) spec_sort_openacc(&region->species[i], region->limits_y);
+			if(region->iter % SORT_FREQUENCY == 0) spec_sort_openacc(&region->species[i]);
+			else spec_clean_vector_openacc(&region->species[i]);
 		}
 	}
 
@@ -276,7 +294,7 @@ void region_current_reduction_x(t_region *region)
 // Current reduction in y for all the regions (recursive calling)
 void region_current_reduction_y(t_region *region)
 {
-	if(region->enable_gpu) current_reduction_y_openacc(&region->local_current);
+	if(region->enable_gpu) current_reduction_y(&region->local_current);
 	else current_reduction_y(&region->local_current);
 	if (region->next->id != 0) region_current_reduction_y(region->next);
 }
@@ -293,8 +311,16 @@ void region_current_smooth(t_region *region, enum CURRENT_SMOOTH_MODE mode)
 			break;
 
 		case CURRENT_UPDATE_GC:
-			if(region->enable_gpu) current_gc_update_y_openacc(&region->local_current);
+			if(region->enable_gpu) current_gc_update_y(&region->local_current);
 			else current_gc_update_y(&region->local_current);
+			break;
+
+		case BINOMIAL_Y:
+			current_smooth_y(&region->local_current, BINOMIAL);
+			break;
+
+		case COMPENSATED_Y:
+			current_smooth_y(&region->local_current, COMPENSATED);
 			break;
 
 		default:
@@ -316,7 +342,7 @@ void region_emf_advance(t_region *region, enum EMF_UPDATE mode)
 			break;
 
 		case EMF_UPDATE_GC:
-			if(region->enable_gpu) emf_update_gc_y_openacc(&region->local_emf);
+			if(region->enable_gpu) emf_update_gc_y(&region->local_emf);
 			else emf_update_gc_y(&region->local_emf);
 			break;
 
@@ -345,20 +371,21 @@ void region_advance(t_region *region)
 		region_current_smooth(region, CURRENT_UPDATE_GC);
 	}
 
+	if (region->local_current.smooth.ytype != NONE)
+	{
+		for(int i = 0; i < region->local_current.smooth.ylevel; i++)
+		{
+			region_current_smooth(region, BINOMIAL_Y);
+			region_current_smooth(region, CURRENT_UPDATE_GC);
+		}
+
+		if(region->local_current.smooth.ytype == COMPENSATED)
+		{
+			region_current_smooth(region, COMPENSATED_Y);
+			region_current_smooth(region, CURRENT_UPDATE_GC);
+		}
+	}
+
 	region_emf_advance(region, EMF_ADVANCE);
 	region_emf_advance(region, EMF_UPDATE_GC);
-}
-
-/*********************************************************************************************
- Diagnostics
- *********************************************************************************************/
-void region_charge_report(const t_region *region, t_part_data *charge, int i_spec)
-{
-	spec_deposit_charge(&region->species[i_spec], charge);
-}
-
-void region_emf_report(const t_region *region, t_fld *restrict E_mag, t_fld *restrict B_mag,
-		const int nrow)
-{
-	emf_report_magnitude(&region->local_emf, E_mag, B_mag, nrow, region->limits_y[0]);
 }

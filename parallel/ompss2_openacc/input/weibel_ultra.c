@@ -9,14 +9,13 @@
 
 void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_regions)
 {
-
 	// Time step
 	float dt = 0.04;
 	float tmax = 40.0;
 
 	// Simulation box
-	int nx[2] = {768, 768};
-	float box[2] = {51.2, 51.2};
+	int nx[2] = { 768, 768 };
+	float box[2] = { 51.2, 51.2 };
 
 	// Diagnostic frequency
 	int ndump = 500;
@@ -26,43 +25,38 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 	t_species *species = (t_species*) malloc(n_species * sizeof(t_species));
 
 	// Use 10x10 particles per cell
-	int ppc[] = {16, 16};
+	int ppc[] = { 16, 16 };
 
 	// Initial fluid and thermal velocities
-	t_part_data ufl[] = {0.0, 0.0, 0.6};
-	t_part_data uth[] = {0.1, 0.1, 0.1};
+	t_part_data ufl[] = { 0.0, 0.0, 0.6 };
+	t_part_data uth[] = { 0.1, 0.1, 0.1 };
 
 	spec_new(&species[0], "electrons", -1.0, ppc, ufl, uth, nx, box, dt, NULL, nx[1]);
 
 	ufl[2] = -ufl[2];
 	spec_new(&species[1], "positrons", +1.0, ppc, ufl, uth, nx, box, dt, NULL, nx[1]);
 
-
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "weibel_ultra", n_regions, gpu_percentage, n_gpu_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "weibel_ultra", n_regions,
+			gpu_percentage, n_gpu_regions);
 
 	free(species);
 }
 
 void sim_report(t_simulation *sim)
 {
-	sim_report_emf(sim);
-	sim_report_charge(sim);
+	//sim_report_csv(sim);
 	sim_report_energy(sim);
 
-	/*
 	// Bx, By, Bz
-	 emf_report(&sim->emf, BFLD, 0);
-	 emf_report(&sim->emf, BFLD, 1);
-	 emf_report(&sim->emf, BFLD, 2);
+	sim_report_grid_zdf(sim, REPORT_BFLD, 0);
+	sim_report_grid_zdf(sim, REPORT_BFLD, 1);
+	sim_report_grid_zdf(sim, REPORT_BFLD, 2);
 
+	// Jz
+	sim_report_grid_zdf(sim, REPORT_CURRENT, 2);
 
-	 // Jz
-	 current_report( &sim->current, 2 );
-
-	 // electron and positron density
-	 spec_report( &sim->species[0], CHARGE, NULL, NULL );
-	 spec_report( &sim->species[1], CHARGE, NULL, NULL );
-	 */
-
+	// electron and positron density
+	sim_report_spec_zdf(sim, 0, CHARGE, NULL, NULL);
+	sim_report_spec_zdf(sim, 1, CHARGE, NULL, NULL);
 }

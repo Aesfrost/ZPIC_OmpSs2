@@ -1,3 +1,13 @@
+/*********************************************************************************************
+ ZPIC
+ region.h
+
+ Created by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
 #ifndef REGION
 #define REGION
 
@@ -14,11 +24,17 @@ enum EMF_UPDATE {
 	EMF_ADVANCE, EMF_UPDATE_GC
 };
 
+// The GPU regions are setup a little bit different than a normal (CPU) regions. First, we define the percentage of regions that
+// will be dedicated to the GPU (e.g., 50% of the all the regions), obtaining the total size of the GPU block.
+// Then, we split this block by the number of GPU regions (as being defined previously).
+// For example, if GPU percentage = 50%, Number of GPU regions = 2 and Number of regions in total = 64,
+// there will be 32 CPU regions and 2 GPU regions, but each GPU have a size equal to 16 CPU regions.
+
 // The regions are stored in a double linked list
 typedef struct Region
 {
 	int id;
-	bool enable_gpu;
+	bool enable_gpu; // Mark the region as a GPU region (all the computational steps will be done using OpenAcc)
 	double iter_time;
 
 	int iter;
@@ -53,5 +69,6 @@ void region_emf_report(const t_region *region, t_fld *restrict E_mag, t_fld *res
 void region_report_iter_time(const t_region *region, double time[], int i);
 
 int get_n_regions();
+int get_gpu_regions_effective();
 
 #endif

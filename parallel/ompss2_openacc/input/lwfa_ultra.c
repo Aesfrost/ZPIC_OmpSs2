@@ -20,7 +20,7 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 	float box[2] = {20.0, 25.6};
 
 	// Diagnostic frequency
-	int ndump = 50;
+	int ndump = 4000;
 
 	// Initialize particles
 	const int n_species = 1;
@@ -55,27 +55,24 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 
 void sim_report(t_simulation *sim)
 {
-	sim_report_emf(sim);
-	sim_report_charge(sim);
+	//sim_report_csv(sim);
 	sim_report_energy(sim);
 
-/*
 	// Bx, By, Bz
-	emf_report(&sim->emf, BFLD, 0);
-	emf_report(&sim->emf, BFLD, 1);
-	emf_report(&sim->emf, BFLD, 2);
+	sim_report_grid_zdf(sim, REPORT_BFLD, 0);
+	sim_report_grid_zdf(sim, REPORT_BFLD, 1);
+	sim_report_grid_zdf(sim, REPORT_BFLD, 2);
 
 	// All electric field components
-	emf_report(&sim->emf, EFLD, 0);
-	emf_report(&sim->emf, EFLD, 1);
-	emf_report(&sim->emf, EFLD, 2);
+	sim_report_grid_zdf(sim, REPORT_EFLD, 0);
+	sim_report_grid_zdf(sim, REPORT_EFLD, 1);
+	sim_report_grid_zdf(sim, REPORT_EFLD, 2);
 
 	// Charge density
-	spec_report(&sim->species[0], CHARGE, NULL, NULL);
+	sim_report_spec_zdf(sim, 0, CHARGE, NULL, NULL);
 
 	// x1u1 phasespace
-	const int pha_nx[] = {1024, 512};
-	const float pha_range[][2] = {{0.0, 20.0}, {-2.0, +2.0}};
-	spec_report(&sim->species[0], PHASESPACE(X1, U1), pha_nx, pha_range);
-*/
+	const int pha_nx[] = { 1024, 512 };
+	const float pha_range[][2] = { { 0.0, 20.0 }, { -2.0, +2.0 } };
+	sim_report_spec_zdf(sim, 0, PHASESPACE(X1, U1), pha_nx, pha_range);
 }

@@ -1,11 +1,13 @@
-/*
- *  emf.c
- *  zpic
- *
- *  Created by Ricardo Fonseca on 10/8/10.
- *  Copyright 2010 Centro de Física dos Plasmas. All rights reserved.
- *
- */
+/*********************************************************************************************
+ ZPIC
+ emf.c
+
+ Created by Ricardo Fonseca on 10/8/10.
+ Modified by Nicolas Guidotti on 11/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +18,7 @@
 #include "emf.h"
 #include "zdf.h"
 #include "timer.h"
-#include "csv_handler.h"
+#include "utilities.h"
 
 static double _emf_time = 0.0;
 
@@ -28,7 +30,6 @@ double emf_time(void)
 /*********************************************************************************************
  Constructor / Destructor
  *********************************************************************************************/
-
 void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 {
 	int i;
@@ -39,18 +40,14 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 	// Allocate global arrays
 	size_t size;
 
-	size = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + nx[1] + gc[1][1]) * sizeof(t_vfld);
-	emf->total_size = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + nx[1] + gc[1][1]);
+	size = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + nx[1] + gc[1][1]);
+	emf->total_size = size;
 	emf->overlap = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + gc[1][1]);
 
-	emf->E_buf = malloc(size);
-	emf->B_buf = malloc(size);
+	emf->E_buf = alloc_align_buffer(DEFAULT_ALIGNMENT, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
+	emf->B_buf = alloc_align_buffer(DEFAULT_ALIGNMENT, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
 
 	assert(emf->E_buf && emf->B_buf);
-
-	// zero fields
-	memset(emf->E_buf, 0, size);
-	memset(emf->B_buf, 0, size);
 
 	// store nx and gc values
 	for (i = 0; i < 2; i++)
@@ -86,6 +83,7 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 	emf->n_move = 0;
 }
 
+// Set the overlap zone between regions (upper zone only)
 void emf_overlap_zone(t_emf *emf, t_emf *upper)
 {
 	emf->B_upper = upper->B + (upper->nx[1] - upper->gc[1][0]) * upper->nrow;
@@ -94,8 +92,8 @@ void emf_overlap_zone(t_emf *emf, t_emf *upper)
 
 void emf_delete(t_emf *emf)
 {
-	free(emf->E_buf);
-	free(emf->B_buf);
+	free_align_buffer(emf->E_buf);
+	free_align_buffer(emf->B_buf);
 
 	emf->E_buf = NULL;
 	emf->B_buf = NULL;
@@ -287,22 +285,81 @@ void emf_add_laser(t_emf *const emf, t_emf_laser *laser, int offset_y)
 /*********************************************************************************************
  Diagnostics
  *********************************************************************************************/
-
-void emf_report(const t_emf *emf, const char field, const char fc)
+// Reconstruct the global buffer for the eletric/magnetic field in a given direction
+void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const int offset,
+		const char field, const char fc)
 {
-	int i, j;
-	char vfname[3];
-
-	// Choose field to save
 	t_vfld *restrict f;
+
 	switch (field)
 	{
 		case EFLD:
 			f = emf->E;
-			vfname[0] = 'E';
 			break;
 		case BFLD:
 			f = emf->B;
+			break;
+		default:
+			fprintf(stderr, "Invalid field type selected, returning\n");
+			break;
+	}
+
+	float *restrict p = global_buffer + offset * emf->nx[0];
+
+	switch (fc)
+	{
+		case 0:
+			for (int j = 0; j < emf->nx[1]; j++)
+			{
+				for (int i = 0; i < emf->nx[0]; i++)
+				{
+					p[i] = f[i].x;
+				}
+				p += emf->nx[0];
+				f += emf->nrow;
+			}
+			break;
+		case 1:
+			for (int j = 0; j < emf->nx[1]; j++)
+			{
+				for (int i = 0; i < emf->nx[0]; i++)
+				{
+					p[i] = f[i].y;
+				}
+				p += emf->nx[0];
+				f += emf->nrow;
+			}
+			break;
+		case 2:
+			for (int j = 0; j < emf->nx[1]; j++)
+			{
+				for (int i = 0; i < emf->nx[0]; i++)
+				{
+					p[i] = f[i].z;
+				}
+				p += emf->nx[0];
+				f += emf->nrow;
+			}
+			break;
+		default:
+			fprintf(stderr, "Invalid field component selected, returning\n");
+			return;
+	}
+}
+
+// Save the reconstructed buffer in a ZDF file
+void emf_report(const float *restrict global_buffer, const float box[2], const int true_nx[2],
+		const int iter, const float dt, const char field, const char fc, const char path[128])
+{
+	char vfname[3];
+
+	// Choose field to save
+	switch (field)
+	{
+		case EFLD:
+			vfname[0] = 'E';
+			break;
+		case BFLD:
 			vfname[0] = 'B';
 			break;
 		default:
@@ -310,45 +367,15 @@ void emf_report(const t_emf *emf, const char field, const char fc)
 			return;
 	}
 
-	// Pack the information
-	float *restrict const buf = malloc(emf->nx[0] * emf->nx[1] * sizeof(float));
-	float *restrict p = buf;
 	switch (fc)
 	{
 		case 0:
-			for (j = 0; j < emf->nx[1]; j++)
-			{
-				for (i = 0; i < emf->nx[0]; i++)
-				{
-					p[i] = f[i].x;
-				}
-				p += emf->nx[0];
-				f += emf->nrow;
-			}
 			vfname[1] = '1';
 			break;
 		case 1:
-			for (j = 0; j < emf->nx[1]; j++)
-			{
-				for (i = 0; i < emf->nx[0]; i++)
-				{
-					p[i] = f[i].y;
-				}
-				p += emf->nx[0];
-				f += emf->nrow;
-			}
 			vfname[1] = '2';
 			break;
 		case 2:
-			for (j = 0; j < emf->nx[1]; j++)
-			{
-				for (i = 0; i < emf->nx[0]; i++)
-				{
-					p[i] = f[i].z;
-				}
-				p += emf->nx[0];
-				f += emf->nrow;
-			}
 			vfname[1] = '3';
 			break;
 		default:
@@ -358,55 +385,23 @@ void emf_report(const t_emf *emf, const char field, const char fc)
 	vfname[2] = 0;
 
 	t_zdf_grid_axis axis[2];
-	axis[0] = (t_zdf_grid_axis) {.min = 0.0, .max = emf->box[0], .label = "x_1",
-									.units = "c/\\omega_p"};
+	axis[0] = (t_zdf_grid_axis ) { .min = 0.0, .max = box[0], .label = "x_1", .units = "c/\\omega_p" };
 
-	axis[1] = (t_zdf_grid_axis) {.min = 0.0, .max = emf->box[1], .label = "x_2",
-									.units = "c/\\omega_p"};
+	axis[1] = (t_zdf_grid_axis ) { .min = 0.0, .max = box[1], .label = "x_2", .units = "c/\\omega_p" };
 
-	t_zdf_grid_info info = {.ndims = 2, .label = vfname, .units = "m_e c \\omega_p e^{-1}",
-							.axis = axis};
+	t_zdf_grid_info info = { .ndims = 2, .label = vfname, .units = "m_e c \\omega_p e^{-1}",
+			.axis = axis };
 
-	info.nx[0] = emf->nx[0];
-	info.nx[1] = emf->nx[1];
+	info.nx[0] = true_nx[0];
+	info.nx[1] = true_nx[1];
 
-	t_zdf_iteration iter = {.n = emf->iter, .t = emf->iter * emf->dt, .time_units = "1/\\omega_p"};
+	t_zdf_iteration iteration = { .n = iter, .t = iter * dt, .time_units = "1/\\omega_p" };
 
-	zdf_save_grid(buf, &info, &iter, "/tmp/EMF");
-
-	// free local data
-	free(buf);
+	zdf_save_grid(global_buffer, &info, &iteration, path);
 
 }
 
-//void emf_get_energy(const t_emf *emf, double energy[])
-//{
-//	int i, j;
-//	t_vfld *const restrict E = emf->E;
-//	t_vfld *const restrict B = emf->B;
-//	const int nrow = emf->nrow;
-//
-//	for (i = 0; i < 6; i++)
-//		energy[i] = 0;
-//
-//	for (j = 0; i < emf->nx[1]; j++)
-//	{
-//		for (i = 0; i < emf->nx[0]; i++)
-//		{
-//			energy[0] += E[i + j * nrow].x * E[i + j * nrow].x;
-//			energy[1] += E[i + j * nrow].y * E[i + j * nrow].y;
-//			energy[2] += E[i + j * nrow].z * E[i + j * nrow].z;
-//			energy[3] += B[i + j * nrow].x * B[i + j * nrow].x;
-//			energy[4] += B[i + j * nrow].y * B[i + j * nrow].y;
-//			energy[5] += B[i + j * nrow].z * B[i + j * nrow].z;
-//		}
-//	}
-//
-//	for (i = 0; i < 6; i++)
-//		energy[i] *= 0.5 * emf->dx[0] * emf->dx[1];
-//
-//}
-
+// Calculate the EMF energy
 double emf_get_energy(t_emf *emf)
 {
 	t_vfld *const restrict E = emf->E;
@@ -426,8 +421,9 @@ double emf_get_energy(t_emf *emf)
 	return result * 0.5 * emf->dx[0] * emf->dx[1];
 }
 
-void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag,
-		t_fld *restrict B_mag, const int nrow, const int offset)
+// Calculate the magnitude of the EMF for a given region
+void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag, t_fld *restrict B_mag,
+		const int nrow, const int offset)
 {
 	const unsigned int nrows = emf->nrow;
 	t_vfld *const restrict E = emf->E;
@@ -448,7 +444,6 @@ void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag,
 	}
 
 }
-
 /*********************************************************************************************
  Field solver
  *********************************************************************************************/
@@ -514,6 +509,7 @@ void yee_e(t_emf *emf, const t_current *current, const float dt)
 	}
 }
 
+// Update the ghost cells in the X direction (CPU)
 void emf_update_gc_x(t_emf *emf)
 {
 	int i, j;
@@ -557,7 +553,7 @@ void emf_update_gc_x(t_emf *emf)
 	}
 }
 
-// This code operates with periodic boundaries
+// Update ghost cells in the upper overlap zone (Y direction, CPU)
 void emf_update_gc_y(t_emf *emf)
 {
 	uint64_t t0 = timer_ticks();
@@ -589,6 +585,7 @@ void emf_update_gc_y(t_emf *emf)
 	//_emf_time += timer_interval_seconds(t0, timer_ticks());
 }
 
+// Move the simulation window
 void emf_move_window(t_emf *emf)
 {
 
@@ -623,6 +620,7 @@ void emf_move_window(t_emf *emf)
 	}
 }
 
+// Perform the local integration of the fields (and post processing). CPU Task
 void emf_advance(t_emf *emf, const t_current *current)
 {
 	uint64_t t0 = timer_ticks();

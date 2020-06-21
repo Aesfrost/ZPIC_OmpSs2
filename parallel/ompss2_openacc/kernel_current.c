@@ -1,5 +1,16 @@
+/*********************************************************************************************
+ ZPIC
+ kernel_current.c
+
+ Created by Nicolas Guidotti on 14/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
 #include "current.h"
 
+// Each region is only responsible to do the reduction operation (y direction) in its top edge (OpenAcc)
 void current_reduction_y_openacc(t_current *current)
 {
 	const int nrow = current->nrow;
@@ -20,6 +31,7 @@ void current_reduction_y_openacc(t_current *current)
 	}
 }
 
+// Current reduction between ghost cells in the x direction (OpenAcc)
 void current_reduction_x_openacc(t_current *current)
 {
 	const int nrow = current->nrow;
@@ -42,6 +54,7 @@ void current_reduction_x_openacc(t_current *current)
 	current->iter++;
 }
 
+// Update the ghost cells in the y direction (only the upper zone, OpenAcc)
 void current_gc_update_y_openacc(t_current *current)
 {
 	const int nrow = current->nrow;

@@ -28,7 +28,7 @@ int get_n_regions()
  Initialisation
  *********************************************************************************************/
 
-// Build a double-linked list of the regions
+// Build a double-linked list of the regions recursively
 void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, t_species *spec,
 		float box[], float dt, t_region *prev_region)
 {
@@ -158,9 +158,11 @@ void region_add_laser(t_region *region, t_emf_laser *laser)
 	p = region;
 	do
 	{
-		if (p->id != 0) emf_update_gc_y(&p->local_emf);
+		emf_update_gc_y(&p->local_emf);
 		p = p->next;
 	} while (p->id != 0);
+
+	#pragma oss taskwait
 
 	p = region;
 	do
@@ -173,6 +175,7 @@ void region_add_laser(t_region *region, t_emf_laser *laser)
 	do
 	{
 		emf_update_gc_y(&p->local_emf);
+		#pragma oss taskwait
 		emf_update_gc_x(&p->local_emf);
 		p = p->next;
 	} while (p->id != 0);

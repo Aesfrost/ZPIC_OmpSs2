@@ -83,9 +83,6 @@ void emf_overlap_zone(t_emf *emf, t_emf *upper);
 void emf_add_laser(t_emf *const emf, t_emf_laser *laser, int offset_y);
 void div_corr_x(t_emf *emf);
 
-void emf_move_window(t_emf *emf);
-void emf_update_gc_x(t_emf *emf);
-
 // General Report
 double emf_time(void);
 double emf_get_energy(t_emf *emf);
@@ -112,5 +109,7 @@ inout(emf->E_buf[0; emf->overlap]) \
 inout(emf->E_upper[-emf->gc[0][0]; emf->overlap]) \
 label(EMF Update GC)
 void emf_update_gc_y(t_emf *emf); // Each region is update the ghost cells in the top edge
+
+void emf_update_gc_x(t_emf *emf);
 
 #endif

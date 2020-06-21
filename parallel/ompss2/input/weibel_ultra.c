@@ -9,7 +9,6 @@
 
 void sim_init(t_simulation *sim, int n_regions)
 {
-
 	// Time step
 	float dt = 0.07;
 	float tmax = 42.0;

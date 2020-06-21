@@ -103,7 +103,7 @@ double spec_time(void);
 double spec_perf(void);
 
 // Utilities
-void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const int type_size);
+void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const size_t type_size);
 
 // CPU Tasks
 #pragma oss task in(emf->E_buf[0; emf->total_size]) in(emf->B_buf[0; emf->total_size]) \

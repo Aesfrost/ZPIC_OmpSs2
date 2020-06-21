@@ -22,7 +22,6 @@
 
 #include "zdf.h"
 #include "timer.h"
-#include "csv_handler.h"
 
 static double _spec_time = 0.0;
 static double _spec_npush = 0.0;
@@ -49,8 +48,10 @@ double spec_perf(void)
  Vector Handling
  *********************************************************************************************/
 // Manual reallocation of buffers
-void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const int type_size)
+void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const size_t type_size)
 {
+	#pragma acc set device_num(0) // Dummy operation to work with the PGI Compiler
+
 	if(*ptr == NULL) *ptr = malloc(new_size * type_size);
 	else
 	{
@@ -838,12 +839,12 @@ void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *low
 		if (iy < limits_y[0])
 		{
 			spec_add_to_temp_vector(&lower_spec->temp_buffer[1], spec->main_vector.data[i]);
-			spec->main_vector.data[i].safe_to_delete = true;
+			spec->main_vector.data[i].safe_to_delete = true; // Mark the particle as invalid
 
 		} else if (iy >= limits_y[1])
 		{
 			spec_add_to_temp_vector(&upper_spec->temp_buffer[0], spec->main_vector.data[i]);
-			spec->main_vector.data[i].safe_to_delete = true;
+			spec->main_vector.data[i].safe_to_delete = true; // Mark the particle as invalid
 		}
 	}
 

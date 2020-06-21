@@ -1,3 +1,14 @@
+/*********************************************************************************************
+ ZPIC
+ kernel_emf.c
+
+ Created by Nicolas Guidotti on 14/06/2020
+
+ Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
+
+ *********************************************************************************************/
+
+
 #include "emf.h"
 #include <stdlib.h>
 #include <string.h>
@@ -58,6 +69,7 @@ void yee_e_openacc(t_emf *emf, const t_current *current, const float dt)
 	}
 }
 
+// Update the ghost cells in the X direction (OpenAcc)
 void emf_gc_x_openacc(t_emf *emf)
 {
 	// For moving window don't update x boundaries
@@ -99,7 +111,7 @@ void emf_gc_x_openacc(t_emf *emf)
 	}
 }
 
-// This code operates with periodic boundaries
+// Update ghost cells in the upper overlap zone (Y direction, OpenAcc)
 void emf_update_gc_y_openacc(t_emf *emf)
 {
 	const int nrow = emf->nrow;
@@ -128,6 +140,7 @@ void emf_update_gc_y_openacc(t_emf *emf)
 	}
 }
 
+// Move the simulation window
 void emf_move_window_openacc(t_emf *emf)
 {
 	if ((emf->iter * emf->dt) > emf->dx[0] * (emf->n_move + 1))
@@ -175,6 +188,7 @@ void emf_move_window_openacc(t_emf *emf)
 	}
 }
 
+// Perform the local integration of the fields (and post processing). OpenAcc Task
 void emf_advance_openacc(t_emf *emf, const t_current *current)
 {
 	const float dt = emf->dt;

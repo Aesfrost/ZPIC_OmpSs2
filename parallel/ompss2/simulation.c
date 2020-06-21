@@ -23,7 +23,6 @@
 #include "simulation.h"
 #include "timer.h"
 #include "zdf.h"
-#include "csv_handler.h"
 
 
 /*********************************************************************************************
@@ -57,8 +56,7 @@ void sim_create_dir(t_simulation *sim)
 void sim_new(t_simulation *sim, int nx[2], float box[2], float dt, float tmax, int ndump,
 		t_species *species, int n_species, char name[64], int n_regions)
 {
-	t_particle_vector *restrict part;
-	double usq, gamma;
+	#pragma acc set device_num(0) // Dummy operation to work with the PGI Compiler
 
 	// Simulation parameters
 	sim->iter = 0;
@@ -81,6 +79,10 @@ void sim_new(t_simulation *sim, int nx[2], float box[2], float dt, float tmax, i
 	sim->first_region = malloc(sizeof(t_region));
 	assert(sim->first_region);
 	region_new(sim->first_region, n_regions, nx, 0, n_species, species, box, dt, NULL);
+
+	// Cleaning
+	for (int n = 0; n < n_species; ++n)
+		spec_delete(&species[n]);
 
 	// Link adjacent regions
 	t_region *restrict region = sim->first_region;
@@ -121,9 +123,6 @@ void sim_new(t_simulation *sim, int nx[2], float box[2], float dt, float tmax, i
 	file = fopen(filename, "w+");
 	fclose(file);
 
-	// Cleaning
-	for (int n = 0; n < n_species; ++n)
-		spec_delete(&species[n]);
 }
 
 void sim_delete(t_simulation *sim)
@@ -181,7 +180,6 @@ void sim_set_moving_window(t_simulation *sim)
 /*********************************************************************************************
  Iteration
  *********************************************************************************************/
-
 void sim_iter(t_simulation *sim)
 {
 	// Advance one iteration in each region (recursively)
@@ -235,7 +233,60 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1)
 //	}
 }
 
-// Save the simulation to a CSV file
+void save_data_csv(t_fld *grid, unsigned int sizeX, unsigned int sizeY, const char filename[128],
+		const char sim_name[64])
+{
+	static bool dir_exists = false;
+
+	char fullpath[256];
+
+	if(!dir_exists)
+	{
+		//Create the output directory if it doesn't exists
+		strcpy(fullpath, "output");
+		struct stat sb;
+		if (stat(fullpath, &sb) == -1)
+		{
+			mkdir(fullpath, 0700);
+		}
+
+		strcat(fullpath, "/");
+		strcat(fullpath, sim_name);
+		if (stat(fullpath, &sb) == -1)
+		{
+			mkdir(fullpath, 0700);
+		}
+	}else
+	{
+		strcpy(fullpath, "output/");
+		strcat(fullpath, sim_name);
+	}
+
+	strcat(fullpath, "/");
+	strcat(fullpath, filename);
+
+	FILE *file = fopen(fullpath, "wb+");
+
+	if (file != NULL)
+	{
+		for (unsigned int j = 0; j < sizeY; j++)
+		{
+			for (unsigned int i = 0; i < sizeX - 1; i++)
+			{
+				fprintf(file, "%f;", grid[i + j * sizeX]);
+			}
+			fprintf(file, "%f\n", grid[(j + 1) * sizeX - 1]);
+		}
+	} else
+	{
+		printf("Couldn't open %s", filename);
+		exit(1);
+	}
+
+	fclose(file);
+}
+
+// Save the simulation energy to a CSV file
 void sim_report_energy(t_simulation *sim)
 {
 	char filename[128];

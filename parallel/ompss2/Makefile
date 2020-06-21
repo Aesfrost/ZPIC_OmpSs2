@@ -3,13 +3,13 @@ CC = pgimcc
 CFLAGS = --ompss-2 -O3
 
 # GCC options
-# CC = mcc
-# CFLAGS = --ompss-2 -O3 -std=c99
+#CC = mcc
+#CFLAGS = --ompss-2 -O3 -std=c99
 
 INCLUDES = -I/home/nicolas/ompss-2/include/
 LDFLAGS = -lm
 
-SOURCE = current.c emf.c particles.c random.c timer.c main.c simulation.c zdf.c csv_handler.c region.c 
+SOURCE = current.c emf.c particles.c random.c timer.c main.c simulation.c zdf.c region.c 
 TARGET = zpic
 
 all : $(SOURCE) $(TARGET)
