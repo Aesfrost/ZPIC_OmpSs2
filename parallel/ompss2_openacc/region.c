@@ -234,13 +234,13 @@ void region_delete(t_region *region)
 // Spec advance for all the regions (recursively)
 void region_spec_advance(t_region *region)
 {
-	current_zero(&region->local_current);
-
 	// Advance iteration count
 	region->iter++;
 
 	if (region->enable_gpu)
 	{
+		current_zero_openacc(&region->local_current);
+
 		for (int i = 0; i < region->n_species; i++)
 		{
 			spec_advance_openacc(&region->species[i], &region->local_emf, &region->local_current,
@@ -250,6 +250,8 @@ void region_spec_advance(t_region *region)
 		}
 	} else
 	{
+		current_zero(&region->local_current);
+
 		for (int i = 0; i < region->n_species; i++)
 		{
 			spec_advance(&region->species[i], &region->local_emf, &region->local_current,

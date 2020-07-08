@@ -38,6 +38,8 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 	current->J_buf = alloc_align_buffer(DEFAULT_ALIGNMENT, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
 	assert(current->J_buf);
 
+	memset(current->J_buf, 0, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
+
 	// store nx and gc values
 	for (i = 0; i < 2; i++)
 	{
@@ -65,10 +67,13 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 	current->dt = dt;
 
 	current->moving_window = 0;
+
+	current->J_temp = NULL;
 }
 
 void current_delete(t_current *current)
 {
+	if(current->J_temp) free_align_buffer(current->J_temp);
 	free_align_buffer(current->J_buf);
 	current->J_buf = NULL;
 }
@@ -298,70 +303,6 @@ void current_smooth_y(t_current *current, enum smooth_type type)
 	}
 }
 
-// Apply the filter in the x direction (OpenAcc)
-void kernel_x_openacc(t_current *const current, const t_fld sa, const t_fld sb)
-{
-	const int nrow = current->nrow;
-	t_vfld *restrict const J = current->J;
-	t_vfld *restrict J_buf = malloc(nrow * current->nx[1] * sizeof(t_vfld));
-	t_vfld *restrict J_aux = J_buf + current->gc[0][0];
-
-	#pragma acc parallel loop independent collapse(2)
-	for (int j = 0; j < current->nx[1]; ++j)
-		for (int i = 0; i < nrow; ++i)
-			J_buf[i + j * nrow] = J[i - 1 + j * nrow];
-
-	#pragma acc parallel loop independent collapse(2)
-	for (int j = 0; j < current->nx[1]; ++j)
-	{
-		for (int i = 0; i < current->nx[0]; ++i)
-		{
-			J[i + j * nrow].x = J_aux[i - 1 + j * nrow].x * sa + J_aux[i + j * nrow].x * sb
-					+ J_aux[i + 1 + j * nrow].x * sa;
-			J[i + j * nrow].y = J_aux[i - 1 + j * nrow].y * sa + J_aux[i + j * nrow].y * sb
-					+ J_aux[i + 1 + j * nrow].y * sa;
-			J[i + j * nrow].z = J_aux[i - 1 + j * nrow].z * sa + J_aux[i + j * nrow].z * sb
-					+ J_aux[i + 1 + j * nrow].z * sa;
-		}
-	}
-
-	if(!current->moving_window)
-	{
-		#pragma acc parallel loop independent collapse(2)
-		for (int j = 0; j < current->nx[1]; ++j)
-		{
-			for (int i = -current->gc[0][0]; i < current->gc[0][1]; i++)
-				if(i < 0) J[i + j * nrow] = J[current->nx[0] + i + j * nrow];
-				else J[current->nx[0] + i + j * nrow] = J[i + j * nrow];
-		}
-	}
-
-	free(J_buf);
-}
-
-// Apply multiple passes of a binomial filter to reduce noise (X direction).
-// Then, pass a compensation filter (if applicable). OpenAcc Task
-void current_smooth_x_openacc(t_current *current)
-{
-	// binomial filter
-	for (int i = 0; i < current->smooth.xlevel; i++)
-		kernel_x_openacc(current, 0.25, 0.5);
-
-	// Compensator
-	if (current->smooth.xtype == COMPENSATED)
-	{
-		// Calculate the value of the compensator kernel for an n pass binomial kernel
-		t_fld a, b, total;
-
-		a = -1;
-		b = (4.0 + 2.0 * current->smooth.xlevel) / current->smooth.xlevel;
-		total = 2 * a + b;
-
-		kernel_x_openacc(current, a / total, b / total);
-	}
-}
-
-
 /*********************************************************************************************
  Diagnostics
  *********************************************************************************************/
@@ -415,7 +356,6 @@ void current_reconstruct_global_buffer(t_current *current, float *global_buffer,
 void current_report(const float *restrict global_buffer, const int iter_num, const int true_nx[2],
 		const float box[2], const float dt, const char jc, const char path[128])
 {
-	int i, j;
 	char vfname[3] = "";
 
 	// Pack the information

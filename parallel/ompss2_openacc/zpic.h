@@ -10,7 +10,6 @@
 #ifndef __ZPIC__
 #define __ZPIC__
 
-
 typedef float t_fld;
 
 typedef float t_part_data;

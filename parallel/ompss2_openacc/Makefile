@@ -1,6 +1,6 @@
 # GCC options
 CC = pgimcc
-CFLAGS = --ompss-2 -O3
+CFLAGS = --ompss-2 -O3 --openacc
 
 #CC = pgcc
 #CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -Mcuda=lineinfo -g

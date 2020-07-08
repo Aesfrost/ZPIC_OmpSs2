@@ -31,7 +31,7 @@
 #include "timer.h"
 
 // Include Simulation parameters here
-#include "input/lwfa_ultra.c"
+#include "input/lwfa.c"
 
 int main(int argc, const char *argv[])
 {

@@ -49,6 +49,9 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 
 	assert(emf->E_buf && emf->B_buf);
 
+	memset(emf->E_buf, 0, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
+	memset(emf->B_buf, 0, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
+
 	// store nx and gc values
 	for (i = 0; i < 2; i++)
 	{
@@ -556,7 +559,6 @@ void emf_update_gc_x(t_emf *emf)
 // Update ghost cells in the upper overlap zone (Y direction, CPU)
 void emf_update_gc_y(t_emf *emf)
 {
-	uint64_t t0 = timer_ticks();
 	int i, j;
 	const int nrow = emf->nrow;
 
@@ -580,9 +582,6 @@ void emf_update_gc_y(t_emf *emf)
 			E_overlap[i + (j + emf->gc[1][0]) * nrow] = E[i + j * nrow];
 		}
 	}
-
-	//#pragma oss atomic
-	//_emf_time += timer_interval_seconds(t0, timer_ticks());
 }
 
 // Move the simulation window
@@ -623,7 +622,6 @@ void emf_move_window(t_emf *emf)
 // Perform the local integration of the fields (and post processing). CPU Task
 void emf_advance(t_emf *emf, const t_current *current)
 {
-	uint64_t t0 = timer_ticks();
 	const float dt = emf->dt;
 
 	// Advance EM field using Yee algorithm modified for having E and B time centered

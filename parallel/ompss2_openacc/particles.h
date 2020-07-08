@@ -111,8 +111,6 @@ typedef struct {
 	// Sort
 	int n_bins_x;
 	int n_bins_y;
-	int *bin_idx;
-	int *bin_np;
 
 } t_species;
 
@@ -156,11 +154,11 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 void spec_post_processing_1_openacc(t_species *restrict spec, t_species *restrict const upper_spec,
 		t_species *restrict const lower_spec, const int limits_y[2]); // Post processing for a single species (openacc)
 
-#pragma oss task label(Spec Update (GPU)) device(openacc) in(spec->temp_buffer[0:1]) inout(spec->main_vector)
+#pragma oss task label(Spec Update (GPU)) in(spec->temp_buffer[0:1]) inout(spec->main_vector) //device(openacc)
 void spec_post_processing_2_openacc(t_species *restrict spec, const int limits_y[2]);
 
 #pragma oss task label(Spec Sort (GPU)) inout(spec->main_vector)
-void spec_sort_openacc(t_species *restrict spec);
+void spec_sort_openacc(t_species *spec);
 
 #pragma oss task label(Spec Clean (GPU)) inout(spec->main_vector)
 void spec_clean_vector_openacc(t_species *spec);

@@ -23,11 +23,11 @@ void* alloc_align_buffer(const size_t alignment, const size_t size)
 {
 	#pragma acc set device_num(0)
 
-//	return calloc(size, sizeof(char));
+//	return malloc(size * sizeof(char));
 
 	// Total size of the buffer (size of the data + padding + address of the beginning of the buffer)
 	const size_t total_size = size + alignment + sizeof(size_t);
-	void *ptr = calloc(total_size, sizeof(char)); // Allocate the buffer
+	void *ptr = malloc(total_size * sizeof(char)); // Allocate the buffer
 
 	if(ptr)
 	{

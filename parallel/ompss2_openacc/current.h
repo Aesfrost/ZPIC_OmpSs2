@@ -30,6 +30,8 @@ typedef struct {
 	t_vfld *J;
 	t_vfld *J_buf;
 
+	t_vfld *J_temp;
+
 	// Grid parameters
 	int nx[2];
 	int nrow;
@@ -96,6 +98,10 @@ void current_smooth_x(t_current *current);
 void current_smooth_y(t_current *current, enum smooth_type type);
 
 // OpenAcc Tasks
+#pragma oss task out(current->J_buf[0; current->total_size]) \
+	label(Current Reset (GPU)) device(openacc)
+void current_zero_openacc(t_current *current);
+
 #pragma oss task inout(current->J_buf[0; current->overlap_zone]) \
 inout(current->J_upper[-current->gc[0][0]; current->overlap_zone]) \
 label(Current Reduction Y (GPU)) device(openacc)
@@ -106,7 +112,7 @@ label(Current Reduction X (GPU)) device(openacc)
 void current_reduction_x_openacc(t_current *current);
 
 #pragma oss task inout(current->J_buf[0; current->total_size]) \
-label(Current Smooth X (GPU)) //device(openacc)
+label(Current Smooth X (GPU)) device(openacc)
 void current_smooth_x_openacc(t_current *current);
 
 #pragma oss task inout(current->J_buf[0; current->overlap_zone]) \

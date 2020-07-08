@@ -10,11 +10,11 @@
 void sim_init(t_simulation *sim, int n_regions)
 {
 	// Time step
-	float dt = 0.07;
-	float tmax = 42.0;
+	float dt = 0.04;
+	float tmax = 40.0;
 
 	// Simulation box
-	int nx[2] = {1024, 1024};
+	int nx[2] = {768, 768};
 	float box[2] = {51.2, 51.2};
 
 	// Diagnostic frequency
@@ -24,8 +24,8 @@ void sim_init(t_simulation *sim, int n_regions)
 	const int n_species = 2;
 	t_species *species = (t_species*) malloc(n_species * sizeof(t_species));
 
-	// Use 32x16 particles per cell
-	int ppc[] = {24, 24};
+	// Use 16x16 particles per cell
+	int ppc[] = {16, 16};
 
 	// Initial fluid and thermal velocities
 	t_part_data ufl[] = {0.0, 0.0, 0.6};

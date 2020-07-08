@@ -595,8 +595,6 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	// Sort
 	spec->n_bins_x = ceil((float) spec->nx[0] / BIN_SIZE);
 	spec->n_bins_y = ceil((float) spec->nx[1] / BIN_SIZE);
-	spec->bin_idx = NULL;
-	spec->bin_np = NULL;
 }
 
 void spec_delete(t_species *spec)
@@ -627,9 +625,6 @@ void spec_delete(t_species *spec)
 			free_align_buffer(spec->temp_buffer[n].uz);
 			free_align_buffer(spec->temp_buffer[n].safe_to_delete);
 		}
-
-	if(spec->bin_idx) free(spec->bin_idx);
-	if(spec->bin_np) free(spec->bin_np);
 
 	spec->main_vector.size = -1;
 	spec->temp_buffer[0].size = -1;
@@ -1015,11 +1010,6 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 	int i;
 	t_part_data qnx, qny, qvz;
 
-	uint64_t t0;
-	t0 = timer_ticks();
-
-	const int nx0 = spec->nx[0];
-	const int nx1 = spec->nx[1];
 	const t_part_data tem = 0.5 * spec->dt / spec->m_q;
 	const t_part_data dt_dx = spec->dt / spec->dx[0];
 	const t_part_data dt_dy = spec->dt / spec->dx[1];
@@ -1041,7 +1031,6 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 		t_vfld Ep, Bp;
 		t_part_data utx, uty, utz;
 		t_part_data ux, uy, uz, rg;
-		t_part_data utsq, gamma;
 		t_part_data gtem, otsq;
 
 		t_part_data x1, y1;

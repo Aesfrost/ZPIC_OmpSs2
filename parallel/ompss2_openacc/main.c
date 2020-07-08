@@ -36,7 +36,6 @@ int main(int argc, const char *argv[])
 	{
 		SORT_FREQUENCY = atoi(argv[4]);
 		BIN_SIZE = atoi(argv[5]);
-
 	}else if(argc != 4)
 	{
 		fprintf(stderr, "Wrong arguments. Expected: <number of regions> <percentage of regions using GPU> "
@@ -57,12 +56,14 @@ int main(int argc, const char *argv[])
 	uint64_t t0, t1;
 	t0 = timer_ticks();
 
+	if(BIN_SIZE < 0) BIN_SIZE = 2 * sim.tmax / sim.dt;
+
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-//		if(n == 2) break;
+//		if(n == 30) break;
 
 //		fprintf(stderr, "n = %i, t = %f\n", n, t);
-//
+
 		if (report(n, sim.ndump))
 		{
 			#pragma oss taskwait

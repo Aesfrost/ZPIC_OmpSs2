@@ -27,7 +27,7 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 	const int n_species = 1;
 
 	// Use 4x2 particles per cell
-	int ppc[] = { 4, 2 };
+	int ppc[] = {4, 2};
 
 	int limits_y[2] = {0, nx[1]};
 
@@ -38,12 +38,11 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 	spec_new(&species[0], "electrons", -1.0, ppc, NULL, NULL, nx, box, dt, &density, nx[1]);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa", n_regions, gpu_percentage,
-			n_gpu_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa", n_regions, gpu_percentage, n_gpu_regions);
 
 	// Add laser pulse (this must come after sim_new)
-	t_emf_laser laser = {.type = GAUSSIAN, .start = 17.0, .fwhm = 2.0, .a0 = 2.0, .omega0 = 10.0,
-			.W0 = 4.0, .focus = 20.0, .axis = 12.8, .polarization = M_PI_2};
+	t_emf_laser laser = {.type = GAUSSIAN, .start = 17.0, .fwhm = 2.0, .a0 = 2.0, .omega0 = 10.0, .W0 = 4.0,
+			.focus = 20.0, .axis = 12.8, .polarization = M_PI_2};
 	sim_add_laser(sim, &laser);
 
 	// Set moving window (this must come after sim_new)

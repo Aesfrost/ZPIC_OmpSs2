@@ -394,7 +394,7 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 	int npart = 0;
 	int n_regions = 0;
 	int gpu_regions = 0;
-	int n_threads = 12; //nanos6_get_num_cpus();
+	int n_threads = nanos6_get_num_cpus();
 
 	t_region *restrict region = sim->first_region;
 	do
