@@ -594,7 +594,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 
 	// Sort
 	spec->n_bins_x = ceil((float) spec->nx[0] / BIN_SIZE);
-	spec->n_bins_y = ceil((float) spec->nx[1] / BIN_SIZE);
+	spec->n_bins_y = ceil((float) region_size / BIN_SIZE);
 }
 
 void spec_delete(t_species *spec)

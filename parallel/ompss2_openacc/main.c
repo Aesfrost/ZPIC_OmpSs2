@@ -28,7 +28,7 @@
 #include "timer.h"
 
 // Include Simulation parameters here
-#include "input/larger_weibel.c"
+#include "input/weibel_ultra.c"
 
 int main(int argc, const char *argv[])
 {
@@ -64,11 +64,11 @@ int main(int argc, const char *argv[])
 
 //		fprintf(stderr, "n = %i, t = %f\n", n, t);
 
-		if (report(n, sim.ndump))
-		{
-			#pragma oss taskwait
-			sim_report(&sim);
-		}
+//		if (report(n, sim.ndump))
+//		{
+//			#pragma oss taskwait
+//			sim_report(&sim);
+//		}
 
 		sim_iter(&sim);
 	}

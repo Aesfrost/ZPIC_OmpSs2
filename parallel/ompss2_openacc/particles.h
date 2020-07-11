@@ -158,10 +158,7 @@ void spec_post_processing_1_openacc(t_species *restrict spec, t_species *restric
 void spec_post_processing_2_openacc(t_species *restrict spec, const int limits_y[2]);
 
 #pragma oss task label(Spec Sort (GPU)) inout(spec->main_vector)
-void spec_sort_openacc(t_species *spec);
-
-#pragma oss task label(Spec Clean (GPU)) inout(spec->main_vector)
-void spec_clean_vector_openacc(t_species *spec);
+void spec_sort_openacc(t_species *spec, const int limits_y[2]);
 
 /*********************************************************************************************
  Diagnostics

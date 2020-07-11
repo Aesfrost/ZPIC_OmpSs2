@@ -23,7 +23,7 @@ void* alloc_align_buffer(const size_t alignment, const size_t size)
 {
 	#pragma acc set device_num(0)
 
-//	return malloc(size * sizeof(char));
+	return malloc(size * sizeof(char));
 
 	// Total size of the buffer (size of the data + padding + address of the beginning of the buffer)
 	const size_t total_size = size + alignment + sizeof(size_t);
@@ -52,8 +52,8 @@ void* alloc_align_buffer(const size_t alignment, const size_t size)
 // Manual free of a buffer aligned in the memory
 void free_align_buffer(void *ptr)
 {
-//	free(ptr);
-//	return;
+	free(ptr);
+	return;
 
 	if(ptr)
 	{

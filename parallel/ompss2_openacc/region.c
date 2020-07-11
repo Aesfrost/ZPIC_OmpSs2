@@ -272,8 +272,7 @@ void region_spec_update(t_region *region)
 		for (int i = 0; i < region->n_species; i++)
 		{
 			spec_post_processing_2_openacc(&region->species[i], region->limits_y);
-			if(region->iter % SORT_FREQUENCY == 0) spec_sort_openacc(&region->species[i]);
-			else spec_clean_vector_openacc(&region->species[i]);
+			if(region->iter % SORT_FREQUENCY == 0) spec_sort_openacc(&region->species[i], region->limits_y);
 		}
 	}
 
