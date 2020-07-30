@@ -234,15 +234,13 @@ void region_delete(t_region *region)
 // Spec advance for all the regions (recursively)
 void region_spec_advance(t_region *region)
 {
-	// Advance iteration count
-	region->iter++;
-
 	if (region->enable_gpu)
 	{
 		current_zero_openacc(&region->local_current);
 
 		for (int i = 0; i < region->n_species; i++)
 		{
+			spec_sort_openacc(&region->species[i], region->limits_y);
 			spec_advance_openacc(&region->species[i], &region->local_emf, &region->local_current,
 					region->limits_y);
 			spec_post_processing_1_openacc(&region->species[i], &region->next->species[i],
@@ -261,6 +259,9 @@ void region_spec_advance(t_region *region)
 		}
 	}
 
+	// Advance iteration count
+	region->iter++;
+
 	if (region->next->id != 0) region_spec_advance(region->next);
 }
 
@@ -270,10 +271,7 @@ void region_spec_update(t_region *region)
 	if(region->enable_gpu)
 	{
 		for (int i = 0; i < region->n_species; i++)
-		{
 			spec_post_processing_2_openacc(&region->species[i], region->limits_y);
-			if(region->iter % SORT_FREQUENCY == 0) spec_sort_openacc(&region->species[i], region->limits_y);
-		}
 	}
 
 	else for (int i = 0; i < region->n_species; i++)

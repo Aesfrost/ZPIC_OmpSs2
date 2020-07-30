@@ -70,6 +70,15 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	sim->box[1] = box[1];
 	strncpy(sim->name, name, 64);
 
+	// Check time step
+	float dx[] = { box[0] / nx[0], box[1] / nx[1] };
+	float cour = sqrtf(1.0f / (1.0f / (dx[0] * dx[0]) + 1.0f / (dx[1] * dx[1])));
+	if (dt >= cour)
+	{
+		fprintf(stderr, "Invalid timestep, courant condition violation, dtmax = %f \n", cour);
+		exit(-1);
+	}
+
 	// Inject particles in the simulation that will be distributed to all the regions
 	const int range[][2] = { { 0, nx[0] }, { 0, nx[1] } };
 	for (int n = 0; n < n_species; ++n)
@@ -92,15 +101,6 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 		region_link_adj_regions(region);
 		region = region->next;
 	} while (region->id != 0);
-
-	// Check time step
-	float dx[] = { box[0] / nx[0], box[1] / nx[1] };
-	float cour = sqrtf(1.0f / (1.0f / (dx[0] * dx[0]) + 1.0f / (dx[1] * dx[1])));
-	if (dt >= cour)
-	{
-		fprintf(stderr, "Invalid timestep, courant condition violation, dtmax = %f \n", cour);
-		exit(-1);
-	}
 
 	sim_create_dir(sim);
 
@@ -411,7 +411,6 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 	fprintf(stdout, "Number of regions (GPU): %d (effective: %d regions)\n", gpu_regions,
 			get_gpu_regions_effective());
 	fprintf(stdout, "Number of threads: %d\n", n_threads);
-	fprintf(stdout, "Sort - Frequency: %d\n", SORT_FREQUENCY);
 	fprintf(stdout, "Sort - Bin size: %d\n", BIN_SIZE);
 //	fprintf(stdout, "Time for spec. advance = %f s\n", spec_time() / n_threads);
 //	fprintf(stdout, "Time for emf   advance = %f s\n", emf_time() / n_threads);

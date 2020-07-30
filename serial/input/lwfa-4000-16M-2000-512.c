@@ -9,7 +9,7 @@
 
 #include "../simulation.h"
 
-void sim_init(t_simulation *sim, int n_regions)
+void sim_init(t_simulation *sim)
 {
 	// Time step
 	float dt = 0.009;
@@ -25,7 +25,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	// Initialize particles
 	const int n_species = 1;
 
-	// Use 4x2 particles per cell
+	// Use 4x4 particles per cell
 	int ppc[] = {4, 4};
 
 	// Density profile
@@ -35,7 +35,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	spec_new(&species[0], "electrons", -1.0, ppc, NULL, NULL, nx, box, dt, &density);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "larger_lwfa", n_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa-4000-16M-2000-512");
 
 	// Add laser pulse (this must come after sim_new)
 	t_emf_laser laser = {.type = GAUSSIAN, .start = 17.0, .fwhm = 2.0, .a0 = 2.0, .omega0 = 10.0, .W0 = 4.0,
@@ -49,13 +49,11 @@ void sim_init(t_simulation *sim, int n_regions)
 	t_smooth smooth = {.xtype = COMPENSATED, .xlevel = 4};
 
 	sim_set_smooth(sim, &smooth);
-
-	free(species);
 }
 
 void sim_report(t_simulation *sim)
 {
-	sim_report_csv(sim);
+	//sim_report_csv(sim);
 	sim_report_energy(sim);
 
 	// Bx, By, Bz
@@ -75,5 +73,4 @@ void sim_report(t_simulation *sim)
 	const int pha_nx[] = { 1024, 512 };
 	const float pha_range[][2] = { { 0.0, 20.0 }, { -2.0, +2.0 } };
 	sim_report_spec_zdf(sim, 0, PHASESPACE(X1, U1), pha_nx, pha_range);
-
 }

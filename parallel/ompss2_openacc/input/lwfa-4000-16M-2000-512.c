@@ -9,7 +9,7 @@
 
 #include "../simulation.h"
 
-void sim_init(t_simulation *sim, int n_regions)
+void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_regions)
 {
 	// Time step
 	float dt = 0.009;
@@ -28,8 +28,6 @@ void sim_init(t_simulation *sim, int n_regions)
 	// Use 4x4 particles per cell
 	int ppc[] = {4, 4};
 
-	int limits_y[2] = {0, nx[1]};
-
 	// Density profile
 	t_density density = {.type = STEP, .start = 20.0};
 
@@ -37,7 +35,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	spec_new(&species[0], "electrons", -1.0, ppc, NULL, NULL, nx, box, dt, &density, nx[1]);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "larger_lwfa", n_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa-4000-16M-2000-512", n_regions, gpu_percentage, n_gpu_regions);
 
 	// Add laser pulse (this must come after sim_new)
 	t_emf_laser laser = {.type = GAUSSIAN, .start = 17.0, .fwhm = 2.0, .a0 = 2.0, .omega0 = 10.0, .W0 = 4.0,

@@ -191,6 +191,7 @@ void region_advance(t_region *regions, const int n_regions)
 
 		for (int k = 0; k < regions[i].n_species; k++)
 		{
+			spec_sort_openacc(&regions[i].species[k], regions[i].limits_y);
 			spec_advance_openacc(&regions[i].species[k], &regions[i].local_emf, &regions[i].local_current,
 								 regions[i].limits_y);
 			spec_post_processing_1_openacc(&regions[i].species[k], &regions[i].next->species[k],
@@ -209,10 +210,7 @@ void region_advance(t_region *regions, const int n_regions)
 		acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
 
 		for (int k = 0; k < regions[i].n_species; k++)
-		{
 			spec_post_processing_2_openacc(&regions[i].species[k], regions[i].limits_y);
-			if (regions[i].iter % SORT_FREQUENCY == 0) spec_sort_openacc(&regions[i].species[k], regions[i].limits_y);
-		}
 	}
 
 	#pragma omp for schedule(static, 1)

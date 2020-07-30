@@ -30,7 +30,7 @@
 #include "timer.h"
 
 // Include Simulation parameters here
-#include "input/weibel.c"
+#include "input/lwfa-4000-16M-2000-512.c"
 
 int main(int argc, const char *argv[])
 {

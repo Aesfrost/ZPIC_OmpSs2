@@ -18,6 +18,18 @@ typedef struct {
 	t_fld x, y, z;
 } t_vfld;
 
+typedef struct {
+	int x, y;
+} t_integer2;
+
+typedef struct {
+	t_part_data x, y;
+} t_float2;
+
+typedef struct {
+	t_part_data x, y, z;
+} t_float3;
+
 /* ANSI C does not define math constants */
 
 #ifndef M_PI

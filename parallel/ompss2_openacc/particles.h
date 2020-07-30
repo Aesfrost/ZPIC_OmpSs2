@@ -19,8 +19,7 @@
 #include "emf.h"
 #include "current.h"
 
-extern int BIN_SIZE;
-extern int SORT_FREQUENCY;
+#define BIN_SIZE 16
 #define MAX_SPNAME_LEN 32
 
 typedef struct {
@@ -111,6 +110,7 @@ typedef struct {
 	// Sort
 	int n_bins_x;
 	int n_bins_y;
+	int *bin_offset;
 
 } t_species;
 
@@ -131,7 +131,7 @@ double spec_perf(void);
 // CPU Tasks
 #pragma oss task label(Spec Advance) \
 	in(emf->E_buf[0; emf->total_size]) in(emf->B_buf[0; emf->total_size]) \
-	inout(spec->main_vector) inout(current->J_buf[0; current->total_size])
+	inout(spec->main_vector) inout(current->J_buf[0; current->total_size]) priority(5)
 void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[2]);
 
 #pragma oss task inout(spec->main_vector) out(lower_spec->temp_buffer[1]) \
@@ -145,7 +145,7 @@ void spec_update_main_vector(t_species *spec);
 // OpenAcc Tasks
 #pragma oss task label(Spec Kernel (GPU)) device(openacc) \
 	in(emf->E_buf[0; emf->total_size]) in(emf->B_buf[0; emf->total_size]) \
-	inout(current->J_buf[0; current->total_size]) inout(spec->main_vector)
+	inout(current->J_buf[0; current->total_size]) inout(spec->main_vector) priority(5)
 void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict const emf,
 		t_current *restrict const current, const int limits_y[2]); // Advance a single species (openacc)
 

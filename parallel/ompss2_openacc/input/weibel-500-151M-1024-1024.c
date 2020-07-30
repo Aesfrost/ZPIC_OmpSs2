@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include "../simulation.h"
 
-void sim_init(t_simulation *sim, int n_regions)
+void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_regions)
 {
 	// Time step
 	float dt = 0.07;
@@ -25,9 +25,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	t_species *species = (t_species*) malloc(n_species * sizeof(t_species));
 
 	// Use 2x2 particles per cell
-	int ppc[] = {32, 32};
-
-	int limits_y[2] = {0, nx[1]};
+	int ppc[] = {12, 12};
 
 	// Initial fluid and thermal velocities
 	t_part_data ufl[] = {0.0, 0.0, 0.6};
@@ -39,7 +37,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	spec_new(&species[1], "positrons", +1.0, ppc, ufl, uth, nx, box, dt, NULL, nx[1]);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "larger_weibel", n_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "weibel-500-151M-1024-1024", n_regions, gpu_percentage, n_gpu_regions);
 
 	free(species);
 }

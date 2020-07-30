@@ -380,7 +380,6 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 	fprintf(stdout, "Simulation: %s\n", sim->name);
 	fprintf(stdout, "Number of regions (Total): %d\n", sim->n_regions);
 	fprintf(stdout, "Number of GPUs: %d\n", acc_get_num_devices(DEVICE_TYPE));
-	fprintf(stdout, "Sort - Frequency: %d\n", SORT_FREQUENCY);
 	fprintf(stdout, "Sort - Bin size: %d\n", BIN_SIZE);
 //	fprintf(stdout, "Time for spec. advance = %f s\n", spec_time() / n_threads);
 //	fprintf(stdout, "Time for emf   advance = %f s\n", emf_time() / n_threads);

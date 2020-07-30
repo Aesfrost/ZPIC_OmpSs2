@@ -27,19 +27,16 @@
 #include "particles.h"
 #include "timer.h"
 
-// Include Simulation parameters here
-#include "input/weibel_ultra.c"
+// Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
+//#include "input/weibel-500-151M-1024-1024.c"
+#include "input/lwfa-4000-16M-2000-512.c"
 
 int main(int argc, const char *argv[])
 {
-	if(argc == 6)
-	{
-		SORT_FREQUENCY = atoi(argv[4]);
-		BIN_SIZE = atoi(argv[5]);
-	}else if(argc != 4)
+	if(argc != 4)
 	{
 		fprintf(stderr, "Wrong arguments. Expected: <number of regions> <percentage of regions using GPU> "
-				"<number of GPU regions>. Optional args: <sort frequency> <bin size>");
+				"<number of GPU regions>");
 		exit(1);
 	}
 
@@ -56,19 +53,17 @@ int main(int argc, const char *argv[])
 	uint64_t t0, t1;
 	t0 = timer_ticks();
 
-	if(BIN_SIZE < 0) BIN_SIZE = 2 * sim.tmax / sim.dt;
-
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-//		if(n == 30) break;
+//		if(n == 2) break;
 
 //		fprintf(stderr, "n = %i, t = %f\n", n, t);
 
-//		if (report(n, sim.ndump))
-//		{
-//			#pragma oss taskwait
-//			sim_report(&sim);
-//		}
+		if (report(n, sim.ndump))
+		{
+			#pragma oss taskwait
+			sim_report(&sim);
+		}
 
 		sim_iter(&sim);
 	}

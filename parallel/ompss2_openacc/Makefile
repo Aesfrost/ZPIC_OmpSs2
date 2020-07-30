@@ -3,7 +3,7 @@ CC = pgimcc
 CFLAGS = --ompss-2 -O3 --openacc
 
 #CC = pgcc
-#CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -Mcuda=lineinfo -g
+#CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -Mcuda=ptxinfo -g
 
 INCLUDES = -I/home/nicolas/ompss-2/include/
 LDFLAGS = -lm
@@ -15,11 +15,14 @@ TARGET = zpic
 all : $(TARGET)
 
 valgrind: $(SOURCE) $(KERNELS)
-	gcc $^ $(INCLUDES) -o $(TARGET) -O3 -std=c99 -g $(LDFLAGS) 
+	gcc $^ $(INCLUDES) -o $(TARGET) -O3 -std=c99 -g $(LDFLAGS) -Wall
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=log.txt ./$(TARGET) 2 0.5 1
 
-$(TARGET) : $(SOURCE) $(KERNELS)
+$(TARGET) : $(SOURCE:.c=.o) $(KERNELS:.c=.o)
 	$(CC) $^ -o $@ $(CFLAGS) $(INCLUDES) $(LDFLAGS)
+
+%.o : %.c
+	$(CC) -c $^ -o $@ $(CFLAGS) $(INCLUDES) $(LDFLAGS)
 
 clean:
 	@touch $(TARGET) 

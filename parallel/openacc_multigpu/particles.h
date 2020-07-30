@@ -19,8 +19,7 @@
 #include "emf.h"
 #include "current.h"
 
-extern int BIN_SIZE;
-extern int SORT_FREQUENCY;
+#define BIN_SIZE 16
 #define MAX_SPNAME_LEN 32
 
 typedef struct {
@@ -111,6 +110,10 @@ typedef struct {
 	// Sort
 	int n_bins_x;
 	int n_bins_y;
+
+	int *bin_offset;
+
+	int ix_limit_min;
 
 } t_species;
 

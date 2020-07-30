@@ -28,26 +28,19 @@
 #include "particles.h"
 #include "timer.h"
 
-// Include Simulation parameters here
-#include "input/weibel_ultra.c"
-
+// Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
+#include "input/lwfa-4000-16M-2000-512.c"
 int main(int argc, const char *argv[])
 {
-	if(argc == 4)
+	if(argc != 2)
 	{
-		SORT_FREQUENCY = atoi(argv[2]);
-		BIN_SIZE = atoi(argv[3]);
-	}else if(argc != 2)
-	{
-		fprintf(stderr, "Wrong arguments. Expected: <number of regions>. Optional args: <sort frequency> <bin size>");
+		fprintf(stderr, "Wrong arguments. Expected: <number of regions / GPUs>");
 		exit(1);
 	}
 
 	// Initialize simulation
 	t_simulation sim;
 	sim_init(&sim, atoi(argv[1]));
-
-	if(BIN_SIZE < 0) BIN_SIZE = 2 * sim.tmax / sim.dt;
 
 	// Run simulation
 	int n;
@@ -63,16 +56,16 @@ int main(int argc, const char *argv[])
 	{
 		for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 		{
-	//		if(n == 30) break;
+//			if(n == 2) break;
 
-//			#pragma omp master
-//			{
-//				fprintf(stderr, "n = %i, t = %f\n", n, t);
-//				if (report(n, sim.ndump)) sim_report(&sim);
-//				sim.iter++;
-//			}
-//
-//			#pragma omp barrier
+			#pragma omp master
+			{
+				fprintf(stderr, "n = %i, t = %f\n", n, t);
+				if (report(n, sim.ndump)) sim_report(&sim);
+				sim.iter++;
+			}
+
+			#pragma omp barrier
 
 			sim_iter(&sim);
 		}

@@ -9,16 +9,15 @@
 
 #include "../simulation.h"
 
-void sim_init(t_simulation *sim)
+void sim_init(t_simulation *sim, int n_regions)
 {
-
 	// Time step
-	float dt = 0.014;
-	float tmax = 28;  //20.314;
+	float dt = 0.009;
+	float tmax = 36;
 
 	// Simulation box
-	int nx[2] = { 2000, 256 };
-	float box[2] = { 40.0, 51.2 };
+	int nx[2] = {2000, 512};
+	float box[2] = {20.0, 25.6};
 
 	// Diagnostic frequency
 	int ndump = 50;
@@ -26,36 +25,37 @@ void sim_init(t_simulation *sim)
 	// Initialize particles
 	const int n_species = 1;
 
-	// Use 4x2 particles per cell
-	int ppc[] = { 4, 2 };
+	// Use 8x8 particles per cell
+	int ppc[] = {8, 8};
 
 	// Density profile
-	t_density density = { .type = STEP, .start = 20.0 };
+	t_density density = {.type = STEP, .start = 20.0};
 
 	t_species *species = (t_species*) malloc(n_species * sizeof(t_species));
 	spec_new(&species[0], "electrons", -1.0, ppc, NULL, NULL, nx, box, dt, &density);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa");
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa-4000-66M-2000-512", n_regions);
 
 	// Add laser pulse (this must come after sim_new)
-	t_emf_laser laser = { .type = GAUSSIAN, .start = 17.0, .fwhm = 2.0, .a0 = 2.0, .omega0 = 10.0,
-			.W0 = 4.0, .focus = 20.0, .axis = 12.8, .polarization = M_PI_2 };
+	t_emf_laser laser = {.type = GAUSSIAN, .start = 17.0, .fwhm = 2.0, .a0 = 2.0, .omega0 = 10.0, .W0 = 4.0,
+							.focus = 20.0, .axis = 12.8, .polarization = M_PI_2};
 	sim_add_laser(sim, &laser);
 
 	// Set moving window (this must come after sim_new)
 	sim_set_moving_window(sim);
 
 	// Set current smoothing (this must come after sim_new)
-	t_smooth smooth = { .xtype = COMPENSATED, .xlevel = 4 };
+	t_smooth smooth = {.xtype = COMPENSATED, .xlevel = 4};
 
 	sim_set_smooth(sim, &smooth);
 
+	free(species);
 }
 
 void sim_report(t_simulation *sim)
 {
-	sim_report_csv(sim);
+	//sim_report_csv(sim);
 	sim_report_energy(sim);
 
 	// Bx, By, Bz

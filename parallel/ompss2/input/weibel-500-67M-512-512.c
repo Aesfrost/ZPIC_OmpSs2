@@ -37,14 +37,14 @@ void sim_init(t_simulation *sim, int n_regions)
 	spec_new(&species[1], "positrons", +1.0, ppc, ufl, uth, nx, box, dt, NULL);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "larger_weibel", n_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "weibel-500-67M-512-512", n_regions);
 
 	free(species);
 }
 
 void sim_report(t_simulation *sim)
 {
-	sim_report_csv(sim);
+	//sim_report_csv(sim);
 	sim_report_energy(sim);
 
 	// Bx, By, Bz

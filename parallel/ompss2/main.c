@@ -30,8 +30,8 @@
 #include "particles.h"
 #include "timer.h"
 
-// Include Simulation parameters here
-#include "input/lwfa.c"
+// Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
+#include "input/lwfa-2000-4M-2000-256.c"
 
 int main(int argc, const char *argv[])
 {

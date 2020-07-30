@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include "../simulation.h"
 
-void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_regions)
+void sim_init(t_simulation *sim, int n_regions)
 {
 	// Time step
 	float dt = 0.07;
@@ -18,7 +18,7 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 	float box[2] = {51.2, 51.2};
 
 	// Diagnostic frequency
-	int ndump = 500;
+	int ndump = 50;
 
 	// Initialize particles
 	const int n_species = 2;
@@ -37,7 +37,7 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 	spec_new(&species[1], "positrons", +1.0, ppc, ufl, uth, nx, box, dt, NULL, nx[1]);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "weibel", n_regions, gpu_percentage, n_gpu_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "weibel-500-4M-512-512", n_regions);
 
 	free(species);
 }

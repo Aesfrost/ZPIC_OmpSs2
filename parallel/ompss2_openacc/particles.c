@@ -595,6 +595,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	// Sort
 	spec->n_bins_x = ceil((float) spec->nx[0] / BIN_SIZE);
 	spec->n_bins_y = ceil((float) region_size / BIN_SIZE);
+	spec->bin_offset = NULL;
 }
 
 void spec_delete(t_species *spec)
@@ -625,6 +626,8 @@ void spec_delete(t_species *spec)
 			free_align_buffer(spec->temp_buffer[n].uz);
 			free_align_buffer(spec->temp_buffer[n].safe_to_delete);
 		}
+
+	if(spec->bin_offset) free(spec->bin_offset);
 
 	spec->main_vector.size = -1;
 	spec->temp_buffer[0].size = -1;

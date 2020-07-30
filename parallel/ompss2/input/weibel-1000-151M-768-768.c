@@ -18,7 +18,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	float box[2] = {51.2, 51.2};
 
 	// Diagnostic frequency
-	int ndump = 500;
+	int ndump = 50;
 
 	// Initialize particles
 	const int n_species = 2;
@@ -31,13 +31,13 @@ void sim_init(t_simulation *sim, int n_regions)
 	t_part_data ufl[] = {0.0, 0.0, 0.6};
 	t_part_data uth[] = {0.1, 0.1, 0.1};
 
-	spec_new(&species[0], "electrons", -1.0, ppc, ufl, uth, nx, box, dt, NULL, nx[1]);
+	spec_new(&species[0], "electrons", -1.0, ppc, ufl, uth, nx, box, dt, NULL);
 
 	ufl[2] = -ufl[2];
-	spec_new(&species[1], "positrons", +1.0, ppc, ufl, uth, nx, box, dt, NULL, nx[1]);
+	spec_new(&species[1], "positrons", +1.0, ppc, ufl, uth, nx, box, dt, NULL);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "weibel_ultra", n_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "weibel-1000-151M-768-768", n_regions);
 
 	free(species);
 }
