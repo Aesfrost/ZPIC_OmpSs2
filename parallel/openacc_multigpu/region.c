@@ -117,6 +117,8 @@ void region_init(t_region *region)
 	current_overlap_zone(&region->local_current, &region->prev->local_current);
 	emf_overlap_zone(&region->local_emf, &region->prev->local_emf);
 
+	acc_set_device_num(region->id % _num_gpus, DEVICE_TYPE);
+
 	for(int i = 0; i < region->n_species; i++)
 		spec_organize_in_tiles(&region->species[i], region->limits_y);
 }
@@ -199,10 +201,10 @@ void region_advance(t_region *regions, const int n_regions)
 										&regions[i].prev->species[k], regions[i].limits_y);
 		}
 
-		if(!regions[i].local_current.moving_window) current_reduction_x_openacc(&regions[i].local_current);
-
 		// Advance iteration count
 		regions[i].iter++;
+
+		if(!regions[i].local_current.moving_window) current_reduction_x_openacc(&regions[i].local_current);
 	}
 
 	#pragma omp for schedule(static, 1)
@@ -212,12 +214,7 @@ void region_advance(t_region *regions, const int n_regions)
 
 		for (int k = 0; k < regions[i].n_species; k++)
 			spec_partial_sort_openacc(&regions[i].species[k], regions[i].limits_y);
-	}
 
-	#pragma omp for schedule(static, 1)
-	for(int i = 0; i < n_regions; i++)
-	{
-		acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
 		current_reduction_y_openacc(&regions[i].local_current);
 	}
 

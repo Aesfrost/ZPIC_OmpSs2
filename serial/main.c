@@ -30,7 +30,7 @@
 #include "timer.h"
 
 // Include Simulation parameters here
-#include "input/lwfa-4000-16M-2000-512.c"
+#include "input/weibel-500-4M-512-512.c"
 
 int main(int argc, const char *argv[])
 {
@@ -50,7 +50,7 @@ int main(int argc, const char *argv[])
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
 		fprintf(stderr, "n = %i, t = %f\n", n, t);
-		if (report(n, sim.ndump)) sim_report(&sim);
+// 		if (report(n, sim.ndump)) sim_report(&sim);
 		sim_iter(&sim);
 	}
 

@@ -510,6 +510,47 @@ void dep_current_openacc(int ix, int iy, int di, int dj, float x0, float y0, flo
 	}
 }
 
+void spec_advance_part_velocity(t_float3 *part_velocity, t_vfld Ep, t_vfld Bp, t_part_data tem)
+{
+	Ep.x *= tem;
+	Ep.y *= tem;
+	Ep.z *= tem;
+
+	t_float3 ut;
+	ut.x = part_velocity->x + Ep.x;
+	ut.y = part_velocity->y + Ep.y;
+	ut.z = part_velocity->z + Ep.z;
+
+	// Perform first half of the rotation
+	t_part_data ustq = ut.x * ut.x + ut.y * ut.y + ut.z * ut.z;
+	t_part_data gtem = tem / sqrtf(1.0f + ustq);
+
+	Bp.x *= gtem;
+	Bp.y *= gtem;
+	Bp.z *= gtem;
+
+	part_velocity->x = ut.x + ut.y * Bp.z - ut.z * Bp.y;
+	part_velocity->y = ut.y + ut.z * Bp.x - ut.x * Bp.z;
+	part_velocity->z = ut.z + ut.x * Bp.y - ut.y * Bp.x;
+
+	// Perform second half of the rotation
+	t_part_data Bp_mag = Bp.x * Bp.x + Bp.y * Bp.y + Bp.z * Bp.z;
+	t_part_data otsq = 2.0f / (1.0f + Bp_mag);
+
+	Bp.x *= otsq;
+	Bp.y *= otsq;
+	Bp.z *= otsq;
+
+	ut.x += part_velocity->y * Bp.z - part_velocity->z * Bp.y;
+	ut.y += part_velocity->z * Bp.x - part_velocity->x * Bp.z;
+	ut.z += part_velocity->x * Bp.y - part_velocity->y * Bp.x;
+
+	// Perform second half of electric field acceleration
+	part_velocity->x = ut.x + Ep.x;
+	part_velocity->y = ut.y + Ep.y;
+	part_velocity->z = ut.z + Ep.z;
+}
+
 // Particle advance (OpenAcc). Uses tiles and shared memory as a cache
 void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict const emf,
 		t_current *restrict const current, const int limits_y[2])
@@ -603,44 +644,8 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 					// Interpolate fields
 					interpolate_fld_openacc(E, B, (TILE_SIZE + 2), part_idx.x, part_idx.y, part_pos.x, part_pos.y, &Ep, &Bp);
 
-					// Advance u using Boris scheme
-					Ep.x *= tem;
-					Ep.y *= tem;
-					Ep.z *= tem;
-
-					t_float3 ut;
-					ut.x = part_velocity.x + Ep.x;
-					ut.y = part_velocity.y + Ep.y;
-					ut.z = part_velocity.z + Ep.z;
-
-					// Perform first half of the rotation
-					t_part_data ustq = ut.x * ut.x + ut.y * ut.y + ut.z * ut.z;
-					t_part_data gtem = tem / sqrtf(1.0f + ustq);
-
-					Bp.x *= gtem;
-					Bp.y *= gtem;
-					Bp.z *= gtem;
-
-					part_velocity.x = ut.x + ut.y * Bp.z - ut.z * Bp.y;
-					part_velocity.y = ut.y + ut.z * Bp.x - ut.x * Bp.z;
-					part_velocity.z = ut.z + ut.x * Bp.y - ut.y * Bp.x;
-
-					// Perform second half of the rotation
-					t_part_data Bp_mag = Bp.x * Bp.x + Bp.y * Bp.y + Bp.z * Bp.z;
-					t_part_data otsq = 2.0f / (1.0f + Bp_mag);
-
-					Bp.x *= otsq;
-					Bp.y *= otsq;
-					Bp.z *= otsq;
-
-					ut.x += part_velocity.y * Bp.z - part_velocity.z * Bp.y;
-					ut.y += part_velocity.z * Bp.x - part_velocity.x * Bp.z;
-					ut.z += part_velocity.x * Bp.y - part_velocity.y * Bp.x;
-
-					// Perform second half of electric field acceleration
-					part_velocity.x = ut.x + Ep.x;
-					part_velocity.y = ut.y + Ep.y;
-					part_velocity.z = ut.z + Ep.z;
+					// Advance particle velocity using Boris scheme
+					spec_advance_part_velocity(&part_velocity, Ep, Bp, tem);
 
 					// Push particle
 					t_part_data usq = part_velocity.x * part_velocity.x

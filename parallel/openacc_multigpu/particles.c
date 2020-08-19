@@ -356,7 +356,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	spec->energy = 0;
 
 	// Initialize particle buffer
-	part_vector_alloc(&spec->main_vector, (npc * region_size * nx[0] / 1024 + 1) * 1024);
+	part_vector_alloc(&spec->main_vector, (npc * (2 + region_size) * nx[0] / 1024 + 1) * 1024);
 
 	// Initialize temp buffer
 	for (i = 0; i < 2; i++)
