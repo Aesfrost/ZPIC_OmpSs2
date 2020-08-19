@@ -36,7 +36,7 @@ typedef struct {
 	t_fld dx[2];
 
 	int total_size; // Total size of the buffer
-	int overlap;  // Size of the overlap
+	int overlap_size;  // Size of the overlap
 
 
 	// Time step
@@ -106,5 +106,11 @@ void emf_update_gc_x(t_emf *emf);
 // OpenAcc Tasks
 void emf_advance_openacc(t_emf *emf, const t_current *current);
 void emf_update_gc_y_openacc(t_emf *emf);
+
+// Prefetch
+#ifdef ENABLE_PREFETCH
+void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device);
+#endif
+
 
 #endif

@@ -36,7 +36,7 @@ typedef struct {
 	t_fld dx[2];
 
 	int total_size; // Total size of the buffer
-	int overlap;  // Size of the overlap
+	int overlap_size;  // Size of the overlap
 
 
 	// Time step
@@ -104,10 +104,10 @@ inout(emf->E_buf[0; emf->total_size]) inout(emf->B_buf[0; emf->total_size]) \
 label(EMF Advance)
 void emf_advance(t_emf *emf, const t_current *current);
 
-#pragma oss task inout(emf->B_buf[0; emf->overlap]) \
-inout(emf->B_upper[-emf->gc[0][0]; emf->overlap]) \
-inout(emf->E_buf[0; emf->overlap]) \
-inout(emf->E_upper[-emf->gc[0][0]; emf->overlap]) \
+#pragma oss task inout(emf->B_buf[0; emf->overlap_size]) \
+inout(emf->B_upper[-emf->gc[0][0]; emf->overlap_size]) \
+inout(emf->E_buf[0; emf->overlap_size]) \
+inout(emf->E_upper[-emf->gc[0][0]; emf->overlap_size]) \
 label(EMF Update GC)
 void emf_update_gc_y(t_emf *emf);
 
@@ -119,11 +119,17 @@ inout(emf->E_buf[0; emf->total_size]) inout(emf->B_buf[0; emf->total_size]) \
 label(EMF Advance (GPU)) device(openacc)
 void emf_advance_openacc(t_emf *emf, const t_current *current);
 
-#pragma oss task inout(emf->B_buf[0; emf->overlap]) \
-inout(emf->B_upper[-emf->gc[0][0]; emf->overlap]) \
-inout(emf->E_buf[0; emf->overlap]) \
-inout(emf->E_upper[-emf->gc[0][0]; emf->overlap]) \
+#pragma oss task inout(emf->B_buf[0; emf->overlap_size]) \
+inout(emf->B_upper[-emf->gc[0][0]; emf->overlap_size]) \
+inout(emf->E_buf[0; emf->overlap_size]) \
+inout(emf->E_upper[-emf->gc[0][0]; emf->overlap_size]) \
 label(EMF Update GC (GPU)) device(openacc)
 void emf_update_gc_y_openacc(t_emf *emf);
+
+// Prefetch
+#ifdef ENABLE_PREFETCH
+void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device);
+#endif
+
 
 #endif

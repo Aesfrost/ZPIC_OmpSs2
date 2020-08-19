@@ -12,6 +12,10 @@
 
 #include <openacc.h>
 
+#ifdef ENABLE_PREFETCH
+#include <cuda.h>
+#endif
+
 #define DEVICE_TYPE acc_device_nvidia
 
 typedef float t_fld;

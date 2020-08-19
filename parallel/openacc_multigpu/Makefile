@@ -1,6 +1,6 @@
 # GCC options
 CC = pgcc
-CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -mp -g 
+CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -Mcuda -mp
 
 INCLUDES = -I/home/nicolas/ompss-2/include/
 LDFLAGS = -lm
@@ -11,9 +11,12 @@ TARGET = zpic
 
 all : $(TARGET)
 
+prefetch : CFLAGS += -DENABLE_PREFETCH 
+prefetch : $(TARGET)
+
 valgrind: $(SOURCE) $(KERNELS)
 	gcc $^ $(INCLUDES) -o $(TARGET) -O3 -std=c99 -g $(LDFLAGS) 
-	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=log.txt ./$(TARGET) 2 0.5 1
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=log.txt ./$(TARGET) 2
 
 $(TARGET) : $(SOURCE:.c=.o) $(KERNELS:.c=.o)
 	$(CC) $^ -o $@ $(CFLAGS) $(INCLUDES) $(LDFLAGS)

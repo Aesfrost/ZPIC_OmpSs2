@@ -21,8 +21,6 @@ void realloc_align_buffer(void **restrict ptr, const size_t old_size, const size
 // Manual allocation of a buffer aligned in the memory
 void* alloc_align_buffer(const size_t alignment, const size_t size)
 {
-	//#pragma acc set device_num(0)
-
 	return malloc(size * sizeof(char));
 
 //	// Total size of the buffer (size of the data + padding + address of the beginning of the buffer)

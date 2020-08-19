@@ -48,7 +48,7 @@ typedef struct Region
 
 void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, t_species *spec,
 		float box[], float dt, t_region *prev_region, t_region *next_region);
-void region_link_adj_regions(t_region *region);
+void region_init(t_region *region);
 void region_set_moving_window(t_region *region);
 void region_add_laser(t_region *region, t_emf_laser *laser);
 void region_delete(t_region *region);

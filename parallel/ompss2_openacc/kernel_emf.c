@@ -13,6 +13,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef ENABLE_PREFETCH
+void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
+{
+	cudaMemPrefetchAsync(buf, size * sizeof(t_vfld), device, NULL);
+}
+#endif
+
 void yee_b_openacc(t_emf *emf, const float dt)
 {
 	// these must not be unsigned because we access negative cell indexes
@@ -121,6 +128,19 @@ void emf_update_gc_y_openacc(t_emf *emf)
 	t_vfld *const restrict E_overlap = emf->E_upper;
 	t_vfld *const restrict B_overlap = emf->B_upper;
 
+#ifdef ENABLE_PREFETCH
+	const int size_overlap = emf->overlap_size;
+	const int size = emf->total_size;
+
+	int device = -1;
+	cudaGetDevice(&device);
+
+	emf_prefetch_openacc(emf->B_buf, size, device);
+	emf_prefetch_openacc(emf->E_buf, size, device);
+	emf_prefetch_openacc(E_overlap, size_overlap, device);
+	emf_prefetch_openacc(B_overlap, size_overlap, device);
+#endif
+
 	// y
 	#pragma acc parallel loop collapse(2) independent
 	for (int i = -emf->gc[0][0]; i < emf->nx[0] + emf->gc[0][1]; i++)
@@ -146,7 +166,7 @@ void emf_move_window_openacc(t_emf *emf)
 	if ((emf->iter * emf->dt) > emf->dx[0] * (emf->n_move + 1))
 	{
 		const int nrow = emf->nrow;
-		size_t size = emf->nrow * (emf->gc[1][0] + emf->gc[1][1] + emf->nx[1]);
+		size_t size = emf->total_size;
 		t_vfld *const restrict E = malloc(size * sizeof(t_vfld));
 		t_vfld *const restrict B = malloc(size * sizeof(t_vfld));
 
@@ -155,14 +175,18 @@ void emf_move_window_openacc(t_emf *emf)
 		// Increase moving window counter
 		emf->n_move++;
 
-		#pragma acc parallel loop independent collapse(2)
-		for (int j = 0; j < emf->gc[1][0] + emf->nx[1] + emf->gc[1][1]; j++)
+#ifdef ENABLE_PREFETCH
+	int device = -1;
+	cudaGetDevice(&device);
+	emf_prefetch_openacc(B, size, device);
+	emf_prefetch_openacc(E, size, device);
+#endif
+
+		#pragma acc parallel loop
+		for(int i = 0; i < size; i++)
 		{
-			for (int i = 0; i < nrow; i++)
-			{
-				E[i + j * nrow] = emf->E_buf[i + j * nrow];
-				B[i + j * nrow] = emf->B_buf[i + j * nrow];
-			}
+			E[i] = emf->E_buf[i];
+			B[i] = emf->B_buf[i];
 		}
 
 		// Shift data left 1 cell and zero rightmost cells
@@ -192,6 +216,14 @@ void emf_move_window_openacc(t_emf *emf)
 void emf_advance_openacc(t_emf *emf, const t_current *current)
 {
 	const float dt = emf->dt;
+
+#ifdef ENABLE_PREFETCH
+	int device = -1;
+	cudaGetDevice(&device);
+	emf_prefetch_openacc(emf->B_buf, emf->total_size, device);
+	emf_prefetch_openacc(emf->E_buf, emf->total_size, device);
+	current_prefetch_openacc(current->J_buf, current->total_size, device);
+#endif
 
 	// Advance EM field using Yee algorithm modified for having E and B time centered
 	yee_b_openacc(emf, dt / 2.0f);

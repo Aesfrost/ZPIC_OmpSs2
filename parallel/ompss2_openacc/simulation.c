@@ -98,7 +98,7 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	t_region *restrict region = sim->first_region;
 	do
 	{
-		region_link_adj_regions(region);
+		region_init(region);
 		region = region->next;
 	} while (region->id != 0);
 
@@ -196,7 +196,6 @@ void sim_report_energy(t_simulation *sim)
 {
 	char filename[128];
 
-	int i;
 	double tot_emf = 0;
 	double tot_part = 0;
 
@@ -205,7 +204,7 @@ void sim_report_energy(t_simulation *sim)
 	{
 		tot_emf += emf_get_energy(&region->local_emf);
 
-		for (i = 0; i < sim->first_region->n_species; i++)
+		for (int i = 0; i < sim->first_region->n_species; i++)
 		{
 			spec_calculate_energy(&region->species[i]);
 			tot_part += region->species[i].energy;
@@ -411,7 +410,7 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 	fprintf(stdout, "Number of regions (GPU): %d (effective: %d regions)\n", gpu_regions,
 			get_gpu_regions_effective());
 	fprintf(stdout, "Number of threads: %d\n", n_threads);
-	fprintf(stdout, "Sort - Bin size: %d\n", BIN_SIZE);
+	fprintf(stdout, "Sort - Bin size: %d\n", TILE_SIZE);
 //	fprintf(stdout, "Time for spec. advance = %f s\n", spec_time() / n_threads);
 //	fprintf(stdout, "Time for emf   advance = %f s\n", emf_time() / n_threads);
 	fprintf(stdout, "Total simulation time  = %f s\n", timer_interval_seconds(t0, t1));
@@ -508,7 +507,7 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 			} while (region->id != 0);
 
 			spec_rep_charge(charge, sim->nx, sim->box, sim->iter, sim->dt, sim->moving_window,
-					path);
+							path);
 
 			free(charge);
 		}
@@ -535,11 +534,11 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 
 		case PARTICLES:
 		{
-			const char *quants[] = { "x1", "x2", "u1", "u2", "u3" };
-			const char *units[] = { "c/\\omega_p", "c/\\omega_p", "c", "c", "c" };
+			const char *quants[] = {"x1", "x2", "u1", "u2", "u3"};
+			const char *units[] = {"c/\\omega_p", "c/\\omega_p", "c", "c", "c"};
 
-			t_zdf_iteration iter = { .n = sim->iter, .t = sim->iter * sim->dt,
-					.time_units = "1/\\omega_p" };
+			t_zdf_iteration iter = {.n = sim->iter, .t = sim->iter * sim->dt,
+					.time_units = "1/\\omega_p"};
 
 			// Allocate buffer for positions
 			int np = 0;
@@ -553,8 +552,8 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 			size = np * sizeof(float);
 			float *data = malloc(size);
 
-			t_zdf_part_info info = { .name = (char*) sim->name, .nquants = 5,
-					.quants = (char**) quants, .units = (char**) units, .np = np };
+			t_zdf_part_info info = {.name = (char*) sim->name, .nquants = 5,
+					.quants = (char**) quants, .units = (char**) units, .np = np};
 
 			// Create file and add description
 			t_zdf_file part_file;
@@ -571,18 +570,9 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 			{
 				spec = &region->species[species];
 
-				if (spec->main_vector.type == AoS)
-				{
-					for (int i = 0; i < spec->main_vector.size; i++)
-						data[i + offset] = (spec->n_move + spec->main_vector.part[i].ix
-								+ spec->main_vector.part[i].x) * spec->dx[0];
-
-				} else if (spec->main_vector.type == SoA)
-				{
-					for (int i = 0; i < spec->main_vector.size; i++)
-						data[i + offset] = (spec->n_move + spec->main_vector.ix[i]
-								+ spec->main_vector.x[i]) * spec->dx[0];
-				}
+				for (int i = 0; i < spec->main_vector.size; i++)
+					data[i + offset] = (spec->n_move + spec->main_vector.ix[i]
+							+ spec->main_vector.x[i]) * spec->dx[0];
 
 				region = region->next;
 				offset += spec->main_vector.size;
@@ -595,19 +585,9 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 			do
 			{
 				spec = &region->species[species];
-
-				if (spec->main_vector.type == AoS)
-				{
-					for (int i = 0; i < spec->main_vector.size; i++)
-						data[i + offset] = (spec->n_move + spec->main_vector.part[i].iy
-								+ spec->main_vector.part[i].y) * spec->dx[1];
-
-				} else if (spec->main_vector.type == SoA)
-				{
-					for (int i = 0; i < spec->main_vector.size; i++)
-						data[i + offset] = (spec->n_move + spec->main_vector.iy[i]
-								+ spec->main_vector.y[i]) * spec->dx[1];
-				}
+				for (int i = 0; i < spec->main_vector.size; i++)
+					data[i + offset] = (spec->n_move + spec->main_vector.iy[i]
+							+ spec->main_vector.y[i]) * spec->dx[1];
 
 				region = region->next;
 				offset += spec->main_vector.size;
@@ -620,16 +600,8 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 			do
 			{
 				spec = &region->species[species];
-				if (spec->main_vector.type == AoS)
-				{
-					for (int i = 0; i < spec->main_vector.size; i++)
-						data[i + offset] = spec->main_vector.part[i].ux;
-
-				} else if (spec->main_vector.type == SoA)
-				{
-					for (int i = 0; i < spec->main_vector.size; i++)
-						data[i + offset] = spec->main_vector.ux[i];
-				}
+				for (int i = 0; i < spec->main_vector.size; i++)
+					data[i + offset] = spec->main_vector.ux[i];
 
 				region = region->next;
 				offset += spec->main_vector.size;
@@ -643,16 +615,8 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 			{
 				spec = &region->species[species];
 
-				if (spec->main_vector.type == AoS)
-				{
-					for (int i = 0; i < spec->main_vector.size; i++)
-						data[i + offset] = spec->main_vector.part[i].uy;
-
-				} else if (spec->main_vector.type == SoA)
-				{
-					for (int i = 0; i < spec->main_vector.size; i++)
-						data[i + offset] = spec->main_vector.uy[i];
-				}
+				for (int i = 0; i < spec->main_vector.size; i++)
+					data[i + offset] = spec->main_vector.uy[i];
 
 				region = region->next;
 				offset += spec->main_vector.size;
@@ -666,16 +630,8 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 			{
 				spec = &region->species[species];
 
-				if (spec->main_vector.type == AoS)
-				{
-					for (int i = 0; i < spec->main_vector.size; i++)
-						data[i + offset] = spec->main_vector.part[i].uz;
-
-				} else if (spec->main_vector.type == SoA)
-				{
-					for (int i = 0; i < spec->main_vector.size; i++)
-						data[i + offset] = spec->main_vector.uz[i];
-				}
+				for (int i = 0; i < spec->main_vector.size; i++)
+					data[i + offset] = spec->main_vector.uz[i];
 
 				region = region->next;
 				offset += spec->main_vector.size;

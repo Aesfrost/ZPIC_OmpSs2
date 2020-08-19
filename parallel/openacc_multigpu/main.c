@@ -29,7 +29,7 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-#include "input/lwfa-4000-16M-2000-512.c"
+#include "input/weibel-500-67M-512-512.c"
 int main(int argc, const char *argv[])
 {
 	if(argc != 2)
@@ -47,6 +47,10 @@ int main(int argc, const char *argv[])
 	float t;
 	const int num_threads = atoi(argv[1]) % omp_get_max_threads();
 
+#ifdef ENABLE_PREFETCH
+	fprintf(stderr, "Enabling prefetching ...\n");
+#endif
+
 	fprintf(stderr, "Starting simulation ...\n\n");
 
 	uint64_t t0, t1;
@@ -56,7 +60,7 @@ int main(int argc, const char *argv[])
 	{
 		for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 		{
-//			if(n == 2) break;
+//			if(n == 200) break;
 
 			#pragma omp master
 			{

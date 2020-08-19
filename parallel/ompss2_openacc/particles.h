@@ -19,25 +19,17 @@
 #include "emf.h"
 #include "current.h"
 
-#define BIN_SIZE 16
+#define LOCAL_BUFFER_SIZE 1024
+#define THREAD_BLOCK 320
+#define TILE_SIZE 16
 #define MAX_SPNAME_LEN 32
 
-typedef struct {
-	int ix, iy;
-	t_part_data x, y;
-	t_part_data ux, uy, uz;
-
-	bool safe_to_delete; // Mark the particle as invalid (the particle exited the region)
-
-} t_part;
+#define MAX_VALUE(x, y) x > y ? x : y
+#define MIN_VALUE(x, y) x < y ? x : y
+#define LTRIM(x) (x >= 1.0f) - (x < 0.0f)
 
 enum density_type {
 	UNIFORM, STEP, SLAB
-};
-
-// SoA = Structure of Arrays / AoS = Array of Structures
-enum vector_type {
-	SoA, AoS
 };
 
 typedef struct {
@@ -47,19 +39,14 @@ typedef struct {
 
 } t_density;
 
-// Particle data buffer
+// Particle data buffer (SoA)
 typedef struct {
-
-	// AoS
-	t_part *part;
-
-	// SoA
 	int *ix, *iy;
 	t_part_data *x, *y;
 	t_part_data *ux, *uy, *uz;
-	bool *safe_to_delete;
+	bool *invalid;
 
-	enum vector_type type;
+	int *tile_offset;
 
 	int size;
 	int size_max;
@@ -71,7 +58,7 @@ typedef struct {
 
 	// Particle data buffer (CPU)
 	t_particle_vector main_vector;
-	t_particle_vector temp_buffer[2];    // Temporary buffer for incoming particles
+	t_particle_vector incoming_part[2];    // Temporary buffer for incoming particles
 
 	// mass over charge ratio
 	t_part_data m_q;
@@ -108,9 +95,8 @@ typedef struct {
 	int n_move;
 
 	// Sort
-	int n_bins_x;
-	int n_bins_y;
-	int *bin_offset;
+	int n_tiles_x;
+	int n_tiles_y;
 
 } t_species;
 
@@ -120,9 +106,16 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 		const float dt, t_density *density, const int region_size);
 void spec_inject_particles(t_species *spec, const int range[][2]);
 void spec_delete(t_species *spec);
+void spec_organize_in_tiles(t_species *spec, const int limits_y[2]);
 
 // Utilities
-void convert_vector(t_particle_vector *restrict vector, enum vector_type final_type);
+void part_vector_alloc(t_particle_vector *vector, const int size_max);
+void part_vector_free(t_particle_vector *vector);
+void part_vector_realloc(t_particle_vector *vector, const int new_size);
+void part_vector_assign_valid_part(const t_particle_vector *source, const int source_idx,
+									t_particle_vector *target, const int target_idx);
+void part_vector_memcpy(const t_particle_vector *source, t_particle_vector *target, const int begin,
+						 const int size);
 
 // Report - General
 double spec_time(void);
@@ -134,12 +127,12 @@ double spec_perf(void);
 	inout(spec->main_vector) inout(current->J_buf[0; current->total_size]) priority(5)
 void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[2]);
 
-#pragma oss task inout(spec->main_vector) out(lower_spec->temp_buffer[1]) \
-	out(upper_spec->temp_buffer[0]) label(Spec PP)
+#pragma oss task inout(spec->main_vector) out(lower_spec->incoming_part[1]) \
+	out(upper_spec->incoming_part[0]) label(Spec PP)
 void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *lower_spec,
 		int limits_y[2]);
 
-#pragma oss task in(spec->temp_buffer[0:1]) inout(spec->main_vector) label(Spec Update)
+#pragma oss task in(spec->incoming_part[0:1]) inout(spec->main_vector) label(Spec Update)
 void spec_update_main_vector(t_species *spec);
 
 // OpenAcc Tasks
@@ -150,15 +143,20 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 		t_current *restrict const current, const int limits_y[2]); // Advance a single species (openacc)
 
 #pragma oss task label(Spec Post Processing (GPU)) device(openacc) \
-	inout(spec->main_vector) out(lower_spec->temp_buffer[1]) out(upper_spec->temp_buffer[0])
-void spec_post_processing_1_openacc(t_species *restrict spec, t_species *restrict const upper_spec,
-		t_species *restrict const lower_spec, const int limits_y[2]); // Post processing for a single species (openacc)
+	inout(spec->main_vector) out(lower_spec->incoming_part[1]) out(upper_spec->incoming_part[0])
+void spec_check_boundaries_openacc(t_species *restrict spec, t_species *restrict const upper_spec,
+		t_species *restrict const lower_spec, const int limits_y[2]);
 
-#pragma oss task label(Spec Update (GPU)) in(spec->temp_buffer[0:1]) inout(spec->main_vector) //device(openacc)
-void spec_post_processing_2_openacc(t_species *restrict spec, const int limits_y[2]);
+#pragma oss task label(Spec Move Window (GPU)) inout(spec->main_vector)
+void spec_move_window_openacc(t_species *restrict spec, const int limits_y[2]);
 
-#pragma oss task label(Spec Sort (GPU)) inout(spec->main_vector)
-void spec_sort_openacc(t_species *spec, const int limits_y[2]);
+#pragma oss task label(Spec Partial Sort (GPU)) in(spec->incoming_part[0:1]) inout(spec->main_vector) //device(openacc)
+void spec_partial_sort_openacc(t_species *spec, const int limits_y[2]);
+
+// Prefetch
+#ifdef ENABLE_PREFETCH
+void spec_prefetch_openacc(t_particle_vector *part, const int n_tiles_x, const int n_tiles_y, const int device);
+#endif
 
 /*********************************************************************************************
  Diagnostics

@@ -7,6 +7,7 @@
  Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
 
  *********************************************************************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,12 +16,8 @@
 #include "math.h"
 #include "utilities.h"
 
-#define LOCAL_BUFFER_SIZE 1024
-#define THREAD_BLOCK 320
-
-#define MAX_VALUE(x, y) x > y ? x : y
-#define MIN_VALUE(x, y) x < y ? x : y
-#define LTRIM(x) (x >= 1.0f) - (x < 0.0f)
+#define MIN_WARP_SIZE 32
+#define BATCH_SIZE 512
 
 typedef struct {
 	float x0, x1, y0, y1, dx, dy, qvz;
@@ -31,71 +28,139 @@ typedef struct {
  Utilities
  *********************************************************************************************/
 
+// Prefix/Scan Sum (Exclusive)
 void prefix_sum_openacc(int *restrict vector, const unsigned int size)
 {
-	const unsigned int num_blocks = ceil((float) size / LOCAL_BUFFER_SIZE);
-	int *restrict block_sum = malloc(num_blocks * sizeof(int));
-
-	#pragma acc parallel loop gang vector_length(LOCAL_BUFFER_SIZE / 2)
-	for (int block_id = 0; block_id < num_blocks; block_id++)
+	if(size < LOCAL_BUFFER_SIZE / 4)
 	{
-		const int begin_idx = block_id * LOCAL_BUFFER_SIZE;
-		int local_buffer[LOCAL_BUFFER_SIZE];
+		const int num_blocks = ceil((float) size / MIN_WARP_SIZE);
+		int *restrict block_sum = malloc(num_blocks * sizeof(int));
 
-		#pragma acc cache(local_buffer[0: LOCAL_BUFFER_SIZE])
-
-		#pragma acc loop vector
-		for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)
+		#pragma acc parallel loop gang vector_length(MIN_WARP_SIZE)
+		for (int block_id = 0; block_id < num_blocks; block_id++)
 		{
-			if (i + begin_idx < size) local_buffer[i] = vector[i + begin_idx];
-			else local_buffer[i] = 0;
-		}
+			const int begin_idx = block_id * MIN_WARP_SIZE;
+			int local_buffer[MIN_WARP_SIZE];
 
-		for (int offset = 1; offset < LOCAL_BUFFER_SIZE; offset *= 2)
-		{
+			#pragma acc cache(local_buffer[0: MIN_WARP_SIZE])
+
 			#pragma acc loop vector
-			for (int i = offset - 1; i < LOCAL_BUFFER_SIZE; i += 2 * offset)
-				local_buffer[i + offset] += local_buffer[i];
-
-		}
-
-		block_sum[block_id] = local_buffer[LOCAL_BUFFER_SIZE - 1];
-		local_buffer[LOCAL_BUFFER_SIZE - 1] = 0;
-
-		for (int offset = LOCAL_BUFFER_SIZE >> 1; offset > 0; offset >>= 1)
-		{
-			#pragma acc loop vector
-			for (int i = offset - 1; i < LOCAL_BUFFER_SIZE; i += 2 * offset)
+			for (int i = 0; i < MIN_WARP_SIZE; i++)
 			{
-				int temp = local_buffer[i];
-				local_buffer[i] = local_buffer[i + offset];
-				local_buffer[i + offset] += temp;
+				if (i + begin_idx < size) local_buffer[i] = vector[i + begin_idx];
+				else local_buffer[i] = 0;
+			}
+
+			for (int offset = 1; offset < MIN_WARP_SIZE; offset *= 2)
+			{
+				#pragma acc loop vector
+				for (int i = offset - 1; i < MIN_WARP_SIZE; i += 2 * offset)
+					local_buffer[i + offset] += local_buffer[i];
+
+			}
+
+			block_sum[block_id] = local_buffer[MIN_WARP_SIZE - 1];
+			local_buffer[MIN_WARP_SIZE - 1] = 0;
+
+			for (int offset = MIN_WARP_SIZE >> 1; offset > 0; offset >>= 1)
+			{
+				#pragma acc loop vector
+				for (int i = offset - 1; i < MIN_WARP_SIZE; i += 2 * offset)
+				{
+					int temp = local_buffer[i];
+					local_buffer[i] = local_buffer[i + offset];
+					local_buffer[i + offset] += temp;
+				}
+			}
+
+			#pragma acc loop vector
+			for (int i = 0; i < MIN_WARP_SIZE; i++)
+				if (i + begin_idx < size) vector[i + begin_idx] = local_buffer[i];
+		}
+
+		if(num_blocks > 1)
+		{
+			prefix_sum_openacc(block_sum, num_blocks);
+
+			#pragma acc parallel loop gang
+			for(int block_id = 1; block_id < num_blocks; block_id++)
+			{
+				const int begin_idx = block_id * MIN_WARP_SIZE;
+
+				#pragma acc loop vector
+				for(int i = 0; i < MIN_WARP_SIZE; i++)
+					if(i + begin_idx < size) vector[i + begin_idx] += block_sum[block_id];
 			}
 		}
 
-		#pragma acc loop vector
-		for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)
-			if (i + begin_idx < size) vector[i + begin_idx] = local_buffer[i];
-	}
-
-	if(num_blocks > 1)
+		free(block_sum);
+	}else
 	{
-		prefix_sum_openacc(block_sum, num_blocks);
+		const int num_blocks = ceil((float) size / LOCAL_BUFFER_SIZE);
+		int *restrict block_sum = malloc(num_blocks * sizeof(int));
 
-		#pragma acc parallel loop gang
-		for(int block_id = 1; block_id < num_blocks; block_id++)
+		#pragma acc parallel loop gang vector_length(LOCAL_BUFFER_SIZE / 2)
+		for (int block_id = 0; block_id < num_blocks; block_id++)
 		{
 			const int begin_idx = block_id * LOCAL_BUFFER_SIZE;
+			int local_buffer[LOCAL_BUFFER_SIZE];
+
+			#pragma acc cache(local_buffer[0: LOCAL_BUFFER_SIZE])
 
 			#pragma acc loop vector
-			for(int i = 0; i < LOCAL_BUFFER_SIZE; i++)
-				if(i + begin_idx < size) vector[i + begin_idx] += block_sum[block_id];
-		}
-	}
+			for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)
+			{
+				if (i + begin_idx < size) local_buffer[i] = vector[i + begin_idx];
+				else local_buffer[i] = 0;
+			}
 
-	free(block_sum);
+			for (int offset = 1; offset < LOCAL_BUFFER_SIZE; offset *= 2)
+			{
+				#pragma acc loop vector
+				for (int i = offset - 1; i < LOCAL_BUFFER_SIZE; i += 2 * offset)
+					local_buffer[i + offset] += local_buffer[i];
+
+			}
+
+			block_sum[block_id] = local_buffer[LOCAL_BUFFER_SIZE - 1];
+			local_buffer[LOCAL_BUFFER_SIZE - 1] = 0;
+
+			for (int offset = LOCAL_BUFFER_SIZE >> 1; offset > 0; offset >>= 1)
+			{
+				#pragma acc loop vector
+				for (int i = offset - 1; i < LOCAL_BUFFER_SIZE; i += 2 * offset)
+				{
+					int temp = local_buffer[i];
+					local_buffer[i] = local_buffer[i + offset];
+					local_buffer[i + offset] += temp;
+				}
+			}
+
+			#pragma acc loop vector
+			for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)
+				if (i + begin_idx < size) vector[i + begin_idx] = local_buffer[i];
+		}
+
+		if(num_blocks > 1)
+		{
+			prefix_sum_openacc(block_sum, num_blocks);
+
+			#pragma acc parallel loop gang
+			for(int block_id = 1; block_id < num_blocks; block_id++)
+			{
+				const int begin_idx = block_id * LOCAL_BUFFER_SIZE;
+
+				#pragma acc loop vector
+				for(int i = 0; i < LOCAL_BUFFER_SIZE; i++)
+					if(i + begin_idx < size) vector[i + begin_idx] += block_sum[block_id];
+			}
+		}
+
+		free(block_sum);
+	}
 }
 
+// Apply the sorting to one of the particle vectors. If source_idx == NULL, apply the sorting in the whole array
 void spec_move_vector_int(int *restrict vector, int *restrict source_idx, int *restrict target_idx, const int move_size)
 {
 	int *restrict temp = alloc_align_buffer(DEFAULT_ALIGNMENT, move_size * sizeof(t_integer2));
@@ -104,22 +169,29 @@ void spec_move_vector_int(int *restrict vector, int *restrict source_idx, int *r
 	{
 		#pragma acc parallel loop
 		for(int i = 0; i < move_size; i++)
-			temp[i] = vector[source_idx[i]];
+			if(source_idx[i] >= 0)
+				temp[i] = vector[source_idx[i]];
+
+		#pragma acc parallel loop
+		for(int i = 0; i < move_size; i++)
+			if(source_idx[i] >= 0)
+				vector[target_idx[i]] = temp[i];
 	}else
 	{
 		#pragma acc parallel loop
 		for(int i = 0; i < move_size; i++)
 			temp[i] = vector[i];
-	}
 
-	#pragma acc parallel loop
-	for(int i = 0; i < move_size; i++)
-		if(target_idx[i] >= 0)
-			vector[target_idx[i]] = temp[i];
+		#pragma acc parallel loop
+		for(int i = 0; i < move_size; i++)
+			if(target_idx[i] >= 0)
+				vector[target_idx[i]] = temp[i];
+	}
 
 	free_align_buffer(temp);
 }
 
+// Apply the sorting to one of the particle vectors. If source_idx == NULL, apply the sorting in the whole array
 void spec_move_vector_float(float *restrict vector, int *restrict source_idx, int *restrict target_idx, const int move_size)
 {
 	float *restrict temp = alloc_align_buffer(DEFAULT_ALIGNMENT, move_size * sizeof(float));
@@ -128,22 +200,121 @@ void spec_move_vector_float(float *restrict vector, int *restrict source_idx, in
 	{
 		#pragma acc parallel loop
 		for(int i = 0; i < move_size; i++)
-			temp[i] = vector[source_idx[i]];
+			if(source_idx[i] >= 0)
+				temp[i] = vector[source_idx[i]];
+
+		#pragma acc parallel loop
+		for(int i = 0; i < move_size; i++)
+			if(source_idx[i] >= 0)
+				vector[target_idx[i]] = temp[i];
+
 	}else
 	{
 		#pragma acc parallel loop
 		for(int i = 0; i < move_size; i++)
 			temp[i] = vector[i];
-	}
 
-	#pragma acc parallel loop
-	for(int i = 0; i < move_size; i++)
-		if(target_idx[i] >= 0)
-			vector[target_idx[i]] = temp[i];
+		#pragma acc parallel loop
+		for(int i = 0; i < move_size; i++)
+			if(target_idx[i] >= 0)
+				vector[target_idx[i]] = temp[i];
+	}
 
 	free_align_buffer(temp);
 }
 
+
+// Prefetching for particle vector
+#ifdef ENABLE_PREFETCH
+void spec_prefetch_openacc(t_particle_vector *part, const int n_tiles_x, const int n_tiles_y, const int device)
+{
+	cudaMemPrefetchAsync(part->ix, part->size_max * sizeof(int), device, NULL);
+	cudaMemPrefetchAsync(part->iy, part->size_max * sizeof(int), device, NULL);
+	cudaMemPrefetchAsync(part->x, part->size_max * sizeof(t_part_data), device, NULL);
+	cudaMemPrefetchAsync(part->y, part->size_max * sizeof(t_part_data), device, NULL);
+	cudaMemPrefetchAsync(part->ux, part->size_max * sizeof(t_part_data), device, NULL);
+	cudaMemPrefetchAsync(part->uy, part->size_max * sizeof(t_part_data), device, NULL);
+	cudaMemPrefetchAsync(part->uz, part->size_max * sizeof(t_part_data), device, NULL);
+	cudaMemPrefetchAsync(part->invalid, part->size_max * sizeof(bool), device, NULL);
+	if(n_tiles_x * n_tiles_y > 0) cudaMemPrefetchAsync(part->tile_offset, (n_tiles_y * n_tiles_x + 1) * sizeof(int), device, NULL);
+}
+#endif
+
+/*********************************************************************************************
+ Initialisation
+ *********************************************************************************************/
+
+// Organize the particles in tiles (Bucket Sort)
+void spec_organize_in_tiles(t_species *spec, const int limits_y[2])
+{
+	int iy, ix;
+
+	const int size = spec->main_vector.size;
+	const int n_tiles_x = spec->n_tiles_x;
+	const int n_tiles_y = spec->n_tiles_y;
+
+	spec->main_vector.tile_offset = calloc((n_tiles_y * n_tiles_x + 1), sizeof(int));
+	int *restrict tile_offset = spec->main_vector.tile_offset;
+
+	if(size > 0)
+	{
+		int *restrict pos = alloc_align_buffer(DEFAULT_ALIGNMENT, spec->main_vector.size * sizeof(int));
+
+#ifdef ENABLE_PREFETCH
+		int device = -1;
+		cudaGetDevice(&device);
+
+		spec_prefetch_openacc(&spec->main_vector, n_tiles_x, n_tiles_y, device);
+		cudaMemPrefetchAsync(pos, size * sizeof(int), device, NULL);
+#endif
+
+		// Calculate the histogram (number of particles per tile)
+		#pragma acc parallel loop private(ix, iy)
+		for (int i = 0; i < size; i++)
+		{
+			ix = spec->main_vector.ix[i] / TILE_SIZE;
+			iy = (spec->main_vector.iy[i] - limits_y[0]) / TILE_SIZE;
+
+			#pragma acc atomic capture
+			{
+				pos[i] = tile_offset[ix + iy * n_tiles_x];
+				tile_offset[ix + iy * n_tiles_x]++;
+			}
+		}
+
+		// Prefix sum to find the initial idx of each tile in the particle vector
+		prefix_sum_openacc(tile_offset, n_tiles_x * n_tiles_y + 1);
+
+		// Calculate the target position of each particle
+		#pragma acc parallel loop private(ix, iy)
+		for (int i = 0; i < size; i++)
+		{
+			ix = spec->main_vector.ix[i] / TILE_SIZE;
+			iy = (spec->main_vector.iy[i] - limits_y[0]) / TILE_SIZE;
+
+			pos[i] += tile_offset[ix + iy * n_tiles_x];
+		}
+
+		const int final_size = tile_offset[n_tiles_x * n_tiles_y];
+		spec->main_vector.size = final_size;
+
+		// Move the particles to the correct position
+		spec_move_vector_int(spec->main_vector.ix, NULL, pos, size);
+		spec_move_vector_int(spec->main_vector.iy, NULL, pos, size);
+		spec_move_vector_float(spec->main_vector.x, NULL, pos, size);
+		spec_move_vector_float(spec->main_vector.y, NULL, pos, size);
+		spec_move_vector_float(spec->main_vector.ux, NULL, pos, size);
+		spec_move_vector_float(spec->main_vector.uy, NULL, pos, size);
+		spec_move_vector_float(spec->main_vector.uz, NULL, pos, size);
+
+		// Validate all the particles
+		#pragma acc parallel loop
+		for (int k = 0; k < final_size; k++)
+			spec->main_vector.invalid[k] = false;
+
+		free_align_buffer(pos); // Clean position vector
+	}
+}
 
 /*********************************************************************************************
  Particle Advance
@@ -339,8 +510,8 @@ void dep_current_openacc(int ix, int iy, int di, int dj, float x0, float y0, flo
 	}
 }
 
-// Particle advance (OpenAcc)
-void spec_advance_openacc_optimized(t_species *restrict const spec, const t_emf *restrict const emf,
+// Particle advance (OpenAcc). Uses tiles and shared memory as a cache
+void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict const emf,
 		t_current *restrict const current, const int limits_y[2])
 {
 	const t_part_data tem = 0.5 * spec->dt / spec->m_q;
@@ -354,43 +525,53 @@ void spec_advance_openacc_optimized(t_species *restrict const spec, const t_emf 
 	const int nrow = emf->nrow;
 	const int region_offset = limits_y[0];
 
+#ifdef ENABLE_PREFETCH
+	int device = -1;
+	cudaGetDevice(&device);
+
+	spec_prefetch_openacc(&spec->main_vector, spec->n_tiles_x, spec->n_tiles_y, device);
+	current_prefetch_openacc(current->J_buf, current->total_size, device);
+	emf_prefetch_openacc(emf->B_buf, emf->total_size, device);
+	emf_prefetch_openacc(emf->E_buf, emf->total_size, device);
+#endif
+
 	// Advance particles
 	#pragma acc parallel loop gang collapse(2) vector_length(THREAD_BLOCK)
-	for(int bin_y = 0; bin_y < spec->n_bins_y; bin_y++)
+	for(int tile_y = 0; tile_y < spec->n_tiles_y; tile_y++)
 	{
-		for(int bin_x = 0; bin_x < spec->n_bins_x; bin_x++)
+		for(int tile_x = 0; tile_x < spec->n_tiles_x; tile_x++)
 		{
-			const int bin_idx = bin_x + bin_y * spec->n_bins_x;
-			const int begin = spec->bin_offset[bin_idx];
-			const int end = spec->bin_offset[bin_idx + 1];
+			const int tile_idx = tile_x + tile_y * spec->n_tiles_x;
+			const int begin = spec->main_vector.tile_offset[tile_idx];
+			const int end = spec->main_vector.tile_offset[tile_idx + 1];
 
-			t_vfld E[(BIN_SIZE + 2) * (BIN_SIZE + 2)];
-			t_vfld B[(BIN_SIZE + 2) * (BIN_SIZE + 2)];
-			t_vfld J[(BIN_SIZE + 3) * (BIN_SIZE + 3)];
+			t_vfld E[(TILE_SIZE + 2) * (TILE_SIZE + 2)];
+			t_vfld B[(TILE_SIZE + 2) * (TILE_SIZE + 2)];
+			t_vfld J[(TILE_SIZE + 3) * (TILE_SIZE + 3)];
 
-			#pragma acc cache(E[0 : (BIN_SIZE + 2) * (BIN_SIZE + 2)])
-			#pragma acc cache(B[0 : (BIN_SIZE + 2) * (BIN_SIZE + 2)])
-			#pragma acc cache(J[0 : (BIN_SIZE + 3) * (BIN_SIZE + 3)])
+			#pragma acc cache(E[0 : (TILE_SIZE + 2) * (TILE_SIZE + 2)])
+			#pragma acc cache(B[0 : (TILE_SIZE + 2) * (TILE_SIZE + 2)])
+			#pragma acc cache(J[0 : (TILE_SIZE + 3) * (TILE_SIZE + 3)])
 
 			t_vp vp[THREAD_BLOCK * 3];
 			#pragma acc cache(vp[0 : THREAD_BLOCK * 3])
 
 			#pragma acc loop vector collapse(2)
-			for(int j = 0; j < (BIN_SIZE + 2); j++)
+			for(int j = 0; j < (TILE_SIZE + 2); j++)
 			{
-				for(int i = 0; i < (BIN_SIZE + 2); i++)
+				for(int i = 0; i < (TILE_SIZE + 2); i++)
 				{
 					t_integer2 idx;
-					idx.x = (bin_x * BIN_SIZE + i - 1);
-					idx.y = (bin_y * BIN_SIZE + j - 1);
+					idx.x = (tile_x * TILE_SIZE + i - 1);
+					idx.y = (tile_y * TILE_SIZE + j - 1);
 
-					E[i + j * (BIN_SIZE + 2)] = emf->E[idx.x + idx.y * nrow];
-					B[i + j * (BIN_SIZE + 2)] = emf->B[idx.x + idx.y * nrow];
+					E[i + j * (TILE_SIZE + 2)] = emf->E[idx.x + idx.y * nrow];
+					B[i + j * (TILE_SIZE + 2)] = emf->B[idx.x + idx.y * nrow];
 				}
 			}
 
 			#pragma acc loop vector
-			for(int i = 0; i < (BIN_SIZE + 3) * (BIN_SIZE + 3); i++)
+			for(int i = 0; i < (TILE_SIZE + 3) * (TILE_SIZE + 3); i++)
 			{
 				J[i].x = 0.0f;
 				J[i].y = 0.0f;
@@ -400,27 +581,27 @@ void spec_advance_openacc_optimized(t_species *restrict const spec, const t_emf 
 			#pragma acc loop vector
 			for (int k = begin; k < end; k++)
 			{
-				register bool is_invalid = spec->main_vector.safe_to_delete[k];
+				bool is_invalid = spec->main_vector.invalid[k];
 
 				if(!is_invalid)
 				{
-					register t_float3 part_velocity;
+					t_float3 part_velocity;
 					part_velocity.x = spec->main_vector.ux[k];
 					part_velocity.y = spec->main_vector.uy[k];
 					part_velocity.z = spec->main_vector.uz[k];
 
-					register t_float2 part_pos;
+					t_float2 part_pos;
 					part_pos.x = spec->main_vector.x[k];
 					part_pos.y = spec->main_vector.y[k];
 
-					register t_integer2 part_idx;
-					part_idx.x = spec->main_vector.ix[k] - (bin_x * BIN_SIZE - 1);
-					part_idx.y = spec->main_vector.iy[k] - (bin_y * BIN_SIZE - 1) - region_offset;
+					t_integer2 part_idx;
+					part_idx.x = spec->main_vector.ix[k] - (tile_x * TILE_SIZE - 1);
+					part_idx.y = spec->main_vector.iy[k] - (tile_y * TILE_SIZE - 1) - region_offset;
 
 					t_vfld Ep, Bp;
 
 					// Interpolate fields
-					interpolate_fld_openacc(E, B, (BIN_SIZE + 2), part_idx.x, part_idx.y, part_pos.x, part_pos.y, &Ep, &Bp);
+					interpolate_fld_openacc(E, B, (TILE_SIZE + 2), part_idx.x, part_idx.y, part_pos.x, part_pos.y, &Ep, &Bp);
 
 					// Advance u using Boris scheme
 					Ep.x *= tem;
@@ -478,7 +659,7 @@ void spec_advance_openacc_optimized(t_species *restrict const spec, const t_emf 
 					t_part_data qvz = spec->q * part_velocity.z * rg;
 
 					dep_current_openacc(part_idx.x, part_idx.y, di, dj, part_pos.x, part_pos.y, dx,
-										dy, qnx, qny, qvz, J, (BIN_SIZE + 3), vp, k % THREAD_BLOCK);
+										dy, qnx, qny, qvz, J, (TILE_SIZE + 3), vp, k % THREAD_BLOCK);
 
 					// Store results
 					spec->main_vector.x[k] = x1 - di;
@@ -492,22 +673,22 @@ void spec_advance_openacc_optimized(t_species *restrict const spec, const t_emf 
 			}
 
 			#pragma acc loop vector collapse(2)
-			for(int j = 0; j < (BIN_SIZE + 3); j++)
+			for(int j = 0; j < (TILE_SIZE + 3); j++)
 			{
-				for(int i = 0; i < (BIN_SIZE + 3); i++)
+				for(int i = 0; i < (TILE_SIZE + 3); i++)
 				{
 					t_integer2 idx;
-					idx.x = (bin_x * BIN_SIZE + i - 1);
-					idx.y = (bin_y * BIN_SIZE + j - 1);
+					idx.x = (tile_x * TILE_SIZE + i - 1);
+					idx.y = (tile_y * TILE_SIZE + j - 1);
 
 					#pragma acc atomic
-					current->J[idx.x + idx.y * nrow].x += J[i + j * ((BIN_SIZE + 3))].x;
+					current->J[idx.x + idx.y * nrow].x += J[i + j * ((TILE_SIZE + 3))].x;
 
 					#pragma acc atomic
-					current->J[idx.x + idx.y * nrow].y += J[i + j * ((BIN_SIZE + 3))].y;
+					current->J[idx.x + idx.y * nrow].y += J[i + j * ((TILE_SIZE + 3))].y;
 
 					#pragma acc atomic
-					current->J[idx.x + idx.y * nrow].z += J[i + j * ((BIN_SIZE + 3))].z;
+					current->J[idx.x + idx.y * nrow].z += J[i + j * ((TILE_SIZE + 3))].z;
 				}
 			}
 		}
@@ -517,7 +698,7 @@ void spec_advance_openacc_optimized(t_species *restrict const spec, const t_emf 
 	spec->iter++;
 }
 
-// Particle advance (OpenAcc)
+// Particle advance (OpenAcc). Default implementation
 void spec_advance_openacc_default(t_species *restrict const spec, const t_emf *restrict const emf,
 		t_current *restrict const current, const int limits_y[2])
 {
@@ -529,8 +710,8 @@ void spec_advance_openacc_default(t_species *restrict const spec, const t_emf *r
 	const t_part_data qnx = spec->q * spec->dx[0] / spec->dt;
 	const t_part_data qny = spec->q * spec->dx[1] / spec->dt;
 
-	t_vfld *restrict E = emf->E;
-	t_vfld *restrict B = emf->B;
+	const t_vfld *restrict E = emf->E;
+	const t_vfld *restrict B = emf->B;
 	t_vfld *restrict J = current->J;
 
 	const int nrow = emf->nrow;
@@ -540,20 +721,20 @@ void spec_advance_openacc_default(t_species *restrict const spec, const t_emf *r
 	#pragma acc parallel loop
 	for (int k = 0; k < spec->main_vector.size; k++)
 	{
-		register bool is_invalid = spec->main_vector.safe_to_delete[k];
+		bool is_invalid = spec->main_vector.invalid[k];
 
 		if (!is_invalid)
 		{
-			register t_float3 part_velocity;
+			t_float3 part_velocity;
 			part_velocity.x = spec->main_vector.ux[k];
 			part_velocity.y = spec->main_vector.uy[k];
 			part_velocity.z = spec->main_vector.uz[k];
 
-			register t_float2 part_pos;
+			t_float2 part_pos;
 			part_pos.x = spec->main_vector.x[k];
 			part_pos.y = spec->main_vector.y[k];
 
-			register t_integer2 part_idx;
+			t_integer2 part_idx;
 			part_idx.x = spec->main_vector.ix[k];
 			part_idx.y = spec->main_vector.iy[k] - region_offset;
 
@@ -637,418 +818,10 @@ void spec_advance_openacc_default(t_species *restrict const spec, const t_emf *r
 	spec->iter++;
 }
 
-void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict const emf,
-		t_current *restrict const current, const int limits_y[2])
-{
-	if (spec->moving_window)
-	{
-		if (spec->density.type != UNIFORM && (spec->density.start / spec->dx[0] - spec->n_move) >= 0)
-			spec_advance_openacc_default(spec, emf, current, limits_y);
-		else spec_advance_openacc_optimized(spec, emf, current, limits_y);
-	} else spec_advance_openacc_optimized(spec, emf, current, limits_y);
-}
-
 /*********************************************************************************************
- Async Data Transfer
- *********************************************************************************************/
-//void update_spec_buffer_cpu(const t_particle_vector *restrict const vector)
-//{
-//	#pragma acc update self(vector->ix[0: vector->size]) async
-//	#pragma acc update self(vector->iy[0: vector->size]) async
-//	#pragma acc update self(vector->x[0: vector->size])	async
-//	#pragma acc update self(vector->y[0: vector->size])	async
-//	#pragma acc update self(vector->ux[0: vector->size]) async
-//	#pragma acc update self(vector->uy[0: vector->size]) async
-//	#pragma acc update self(vector->uz[0: vector->size]) async
-//	#pragma acc update self(vector->safe_to_delete[0: vector->size]) async
-//}
-//
-//void update_spec_buffer_gpu(const t_particle_vector *restrict const vector)
-//{
-//	#pragma acc update device(vector->ix[0: vector->size]) async
-//	#pragma acc update device(vector->iy[0: vector->size]) async
-//	#pragma acc update device(vector->x[0: vector->size]) async
-//	#pragma acc update device(vector->y[0: vector->size]) async
-//	#pragma acc update device(vector->ux[0: vector->size]) async
-//	#pragma acc update device(vector->uy[0: vector->size]) async
-//	#pragma acc update device(vector->uz[0: vector->size]) async
-//	#pragma acc update device(vector->safe_to_delete[0: vector->size]) async
-//}
-
-/*********************************************************************************************
- Post Processing 1 (Region Check)
+ Post Processing
  *********************************************************************************************/
 
-// Transfer particles between regions (if applicable). OpenAcc Task
-void spec_post_processing_1_openacc(t_species *restrict spec, t_species *restrict const upper_spec,
-		t_species *restrict const lower_spec, const int limits_y[2])
-{
-	const int num_blocks = ceil((float) spec->main_vector.size / LOCAL_BUFFER_SIZE);
-	const bool shift = (spec->iter * spec->dt) > (spec->dx[0] * (spec->n_move + 1));
-	const int nx0 = spec->nx[0];
-	const int nx1 = spec->nx[1];
-
-	t_particle_vector *restrict const upper_buffer = &upper_spec->temp_buffer[0];
-	t_particle_vector *restrict const lower_buffer = &lower_spec->temp_buffer[1];
-
-	#pragma acc parallel loop gang
-	for(int k = 0; k < num_blocks; k++)
-	{
-		const int begin = k * LOCAL_BUFFER_SIZE;
-		const int end = MIN_VALUE((begin + LOCAL_BUFFER_SIZE), spec->main_vector.size);
-		const int size_batch = end - begin;
-
-		bool is_invalid[LOCAL_BUFFER_SIZE];
-
-		#pragma acc cache(spec->main_vector.ix[begin : LOCAL_BUFFER_SIZE])
-		#pragma acc cache(spec->main_vector.iy[begin : LOCAL_BUFFER_SIZE])
-		#pragma acc cache(spec->main_vector.safe_to_delete[begin : LOCAL_BUFFER_SIZE])
-		#pragma acc cache(is_invalid[0 : LOCAL_BUFFER_SIZE])
-
-		#pragma acc loop vector
-		for(int i = 0; i < size_batch; i++)
-			is_invalid[i] = spec->main_vector.safe_to_delete[begin + i];
-
-		#pragma acc loop vector
-		for(int i = 0; i < size_batch; i++)
-		{
-			if (!is_invalid[i])
-			{
-				int ix = spec->main_vector.ix[begin + i];
-				int iy = spec->main_vector.iy[begin + i];
-
-				if (spec->moving_window)
-				{
-					// Shift particles left
-					if (shift) ix--;
-
-					// Verify if the particle is leaving the region
-					if ((ix < 0) || (ix >= nx0)) is_invalid[i] = true;  // Mark the particle as invalid
-				} else
-				{
-					//Periodic boundaries for both axis
-					if (ix < 0) ix += nx0;
-					else if (ix >= nx0) ix -= nx0;
-				}
-
-				if(!is_invalid[i])
-				{
-					int idx;
-
-					// Check if the particle is leaving the box
-					if (iy < limits_y[0])
-					{
-						if (iy < 0) iy += nx1;
-
-						// Reserve a position in the vector
-						#pragma acc atomic capture
-						idx = lower_buffer->size++;
-
-						lower_buffer->ix[idx] = ix;
-						lower_buffer->iy[idx] = iy;
-						lower_buffer->x[idx] = spec->main_vector.x[begin + i];
-						lower_buffer->y[idx] = spec->main_vector.y[begin + i];
-						lower_buffer->ux[idx] = spec->main_vector.ux[begin + i];
-						lower_buffer->uy[idx] = spec->main_vector.uy[begin + i];
-						lower_buffer->uz[idx] = spec->main_vector.uz[begin + i];
-						lower_buffer->safe_to_delete[idx] = false;
-
-						is_invalid[i] = true;  // Mark the particle as invalid
-
-					} else if (iy >= limits_y[1])
-					{
-						if (iy >= nx1) iy -= nx1;
-
-						#pragma acc atomic capture
-						idx = upper_buffer->size++;
-
-						upper_buffer->ix[idx] = ix;
-						upper_buffer->iy[idx] = iy;
-						upper_buffer->x[idx] = spec->main_vector.x[begin + i];
-						upper_buffer->y[idx] = spec->main_vector.y[begin + i];
-						upper_buffer->ux[idx] = spec->main_vector.ux[begin + i];
-						upper_buffer->uy[idx] = spec->main_vector.uy[begin + i];
-						upper_buffer->uz[idx] = spec->main_vector.uz[begin + i];
-						upper_buffer->safe_to_delete[idx] = false;
-
-						is_invalid[i] = true;  // Mark the particle as invalid
-					}
-				}
-
-				if(!is_invalid[i])
-				{
-					spec->main_vector.ix[begin + i] = ix;
-					spec->main_vector.iy[begin + i] = iy;
-				}
-
-				spec->main_vector.safe_to_delete[begin + i] = is_invalid[i];
-			}
-		}
-	}
-
-	// Update the temp buffers of adjacent regions
-//	update_spec_buffer_cpu(lower_buffer);
-//	update_spec_buffer_cpu(upper_buffer);
-}
-
-/*********************************************************************************************
- Sort
- *********************************************************************************************/
-
-// Bucket sort (no optimization)
-void spec_sort_openacc_default(t_species *restrict spec, const int limits_y[2])
-{
-	int iy, ix;
-
-	const int size = spec->main_vector.size;
-	const int n_bins_x = spec->n_bins_x;
-	const int n_bins_y = spec->n_bins_y;
-
-	if(!spec->bin_offset) spec->bin_offset = malloc((n_bins_y * n_bins_x + 1) * sizeof(int));
-
-	int *restrict bin_offset = spec->bin_offset;
-	int *restrict pos = alloc_align_buffer(DEFAULT_ALIGNMENT, spec->main_vector.size * sizeof(int));
-
-	// Count the particles in each bin
-	#pragma acc parallel loop
-	for(int i = 0; i <= n_bins_x * n_bins_y; i++)
-		bin_offset[i] = 0;
-
-	#pragma acc parallel loop private(ix, iy)
-	for (int i = 0; i < size; i++)
-	{
-		if(!spec->main_vector.safe_to_delete[i])
-		{
-			ix = spec->main_vector.ix[i] / BIN_SIZE;
-			iy = (spec->main_vector.iy[i] - limits_y[0]) / BIN_SIZE;
-
-			#pragma acc atomic capture
-			{
-				pos[i] = bin_offset[ix + iy * n_bins_x];
-				bin_offset[ix + iy * n_bins_x]++;
-			}
-		}else pos[i] = -1;
-	}
-
-	// Prefix sum to find the initial idx of each bin
-	prefix_sum_openacc(bin_offset, n_bins_x * n_bins_y + 1);
-
-	// Calculate the new position in the array
-	#pragma acc parallel loop private(ix, iy)
-	for (int i = 0; i < size; i++)
-	{
-		if (pos[i] >= 0)
-		{
-			ix = spec->main_vector.ix[i] / BIN_SIZE;
-			iy = (spec->main_vector.iy[i] - limits_y[0]) / BIN_SIZE;
-
-			pos[i] += bin_offset[ix + iy * n_bins_x];
-		}
-	}
-
-	const int final_size = bin_offset[n_bins_x * n_bins_y];
-	spec->main_vector.size = final_size;
-
-	spec_move_vector_int(spec->main_vector.ix, NULL, pos, size);
-	spec_move_vector_int(spec->main_vector.iy, NULL, pos, size);
-	spec_move_vector_float(spec->main_vector.x, NULL, pos, size);
-	spec_move_vector_float(spec->main_vector.y, NULL, pos, size);
-	spec_move_vector_float(spec->main_vector.ux, NULL, pos, size);
-	spec_move_vector_float(spec->main_vector.uy, NULL, pos, size);
-	spec_move_vector_float(spec->main_vector.uz, NULL, pos, size);
-
-	free_align_buffer(pos); // Clean position vector
-
-	#pragma acc parallel loop
-	for (int k = 0; k < final_size; k++)
-		spec->main_vector.safe_to_delete[k] = false;
-}
-
-// Bucket sort (assuming that particles are almost sorted)
-void spec_sort_openacc_almost(t_species *restrict spec, const int limits_y[2])
-{
-	const int offset_region = limits_y[0];
-	const int size = spec->main_vector.size;
-	const int n_bins_x = spec->n_bins_x;
-	const int n_bins = spec->n_bins_x * spec->n_bins_y;
-
-	if(!spec->bin_offset) spec->bin_offset = malloc((n_bins + 1) * sizeof(int));
-
-	int *restrict bin_offset = spec->bin_offset;
-	int *restrict new_bin_offset = malloc((n_bins + 1) * sizeof(int));
-	int *restrict part_target_bin = alloc_align_buffer(DEFAULT_ALIGNMENT, size * sizeof(int));
-
-	#pragma acc parallel loop
-	for (int i = 0; i < n_bins + 1; i++)
-		new_bin_offset[i] = 0;
-
-	#pragma acc parallel loop gang
-	for (int i = 0; i < n_bins + 1; i++)
-	{
-		const register int begin = bin_offset[i];
-		const register int end = i == n_bins ? size : bin_offset[i + 1];
-		int count = 0;
-
-		#pragma acc loop vector reduction(+ : count)
-		for(int k = begin; k < end; k++)
-		{
-			register int target_bin;
-			register int ix = spec->main_vector.ix[k] / BIN_SIZE;
-			register int iy = (spec->main_vector.iy[k] - offset_region) / BIN_SIZE;
-			register bool is_invalid = spec->main_vector.safe_to_delete[k];
-
-			if(!is_invalid)
-			{
-				target_bin = ix + iy * n_bins_x;
-
-				if(target_bin == i) count++;
-				else
-				{
-					#pragma acc atomic
-					new_bin_offset[target_bin]++;
-				}
-			}else target_bin = -1;
-
-			part_target_bin[k] = target_bin;
-		}
-
-		#pragma acc atomic
-		new_bin_offset[i] += count;
-	}
-
-	// Prefix sum to find the initial idx of each bin
-	prefix_sum_openacc(new_bin_offset, n_bins + 1);
-	spec->main_vector.size = new_bin_offset[n_bins];
-	spec->bin_offset[n_bins] = new_bin_offset[n_bins];
-
-	int *restrict leaving_offset = calloc((n_bins + 1), sizeof(int));
-
-	#pragma acc parallel loop gang
-	for (int i = 0; i < n_bins; i++)
-	{
-		const int begin = new_bin_offset[i];
-		const int end = new_bin_offset[i + 1];
-		int leaving_count = 0;
-
-		spec->bin_offset[i] = begin;
-
-		#pragma acc loop vector reduction(+ : leaving_count)
-		for(int k = begin; k < end; k++)
-		{
-			register int target_bin = part_target_bin[k];
-			if(target_bin != i) leaving_count++;
-		}
-
-		leaving_offset[i] = leaving_count;
-	}
-
-	free(new_bin_offset);
-
-	int count = 0;
-
-	#pragma acc parallel loop reduction(+ : count)
-	for(int i = spec->main_vector.size; i < size; i++)
-		if(spec->main_vector.safe_to_delete[i]) count++;
-
-	prefix_sum_openacc(leaving_offset, n_bins + 1);
-	const int temp_buffer_size = leaving_offset[n_bins] + count;
-
-	int *restrict source_idx = malloc(temp_buffer_size * sizeof(int));
-	int *restrict target_idx = malloc(temp_buffer_size * sizeof(int));
-	int *restrict holes_idx = malloc(temp_buffer_size * sizeof(int));
-	int idx_buffer_counter = 0;
-
-	#pragma acc parallel loop gang
-	for (int i = 0; i < n_bins; i++)
-	{
-		const int begin = bin_offset[i];
-		const int end = bin_offset[i + 1];
-		int offset = leaving_offset[i];
-
-		#pragma acc loop vector
-		for(int k = begin; k < end; k++)
-		{
-			register int idx;
-			register int target_bin = part_target_bin[k];
-
-			if(target_bin != i)
-			{
-				#pragma acc atomic capture
-				idx = offset++;
-
-				holes_idx[idx] = k;
-
-				if (target_bin >= 0)
-				{
-					#pragma acc atomic capture
-					idx = idx_buffer_counter++;
-
-					source_idx[idx] = k;
-				}
-			}
-		}
-	}
-
-	#pragma acc parallel loop
-	for (int i = spec->main_vector.size; i < size; i++)
-	{
-		int idx = idx_buffer_counter + i - spec->main_vector.size;
-		source_idx[idx] = i;
-	}
-
-	#pragma acc parallel loop
-	for(int i = 0; i < temp_buffer_size; i++)
-	{
-		int idx;
-		const register int source = source_idx[i];
-		register int target_bin = part_target_bin[source];
-
-		if (target_bin >= 0)
-		{
-			#pragma acc atomic capture
-			idx = leaving_offset[target_bin]++;
-
-			target_idx[i] = holes_idx[idx];
-		}else target_idx[i] = -1;
-	}
-
-	free(holes_idx);
-	free(leaving_offset);
-	free_align_buffer(part_target_bin);
-
-	spec_move_vector_int(spec->main_vector.ix, source_idx, target_idx, temp_buffer_size);
-	spec_move_vector_int(spec->main_vector.iy, source_idx, target_idx, temp_buffer_size);
-	spec_move_vector_float(spec->main_vector.x, source_idx, target_idx, temp_buffer_size);
-	spec_move_vector_float(spec->main_vector.y, source_idx, target_idx, temp_buffer_size);
-	spec_move_vector_float(spec->main_vector.ux, source_idx, target_idx, temp_buffer_size);
-	spec_move_vector_float(spec->main_vector.uy, source_idx, target_idx, temp_buffer_size);
-	spec_move_vector_float(spec->main_vector.uz, source_idx, target_idx, temp_buffer_size);
-
-	free(source_idx);
-	free(target_idx);
-
-	#pragma acc parallel loop
-	for (int k = 0; k < size; k++)
-		spec->main_vector.safe_to_delete[k] = false;
-}
-
-
-void spec_sort_openacc(t_species *restrict spec, const int limits_y[2])
-{
-	if(spec->moving_window && spec->density.type != UNIFORM)
-	{
-		if(spec->density.start / spec->dx[0] - spec->n_move < 0) spec_sort_openacc_almost(spec, limits_y);
-	}else
-	{
-		if(spec->iter == 0)
-			spec_sort_openacc_default(spec, limits_y);
-		else spec_sort_openacc_almost(spec, limits_y);
-	}
-}
-
-/*********************************************************************************************
- Post Processing 2 (Update main buffer + Move Window)
- *********************************************************************************************/
 // Reset the particle velocity (OpenAcc)
 void spec_set_u_openacc(t_species *spec, const int start, const int end)
 {
@@ -1111,7 +884,7 @@ void spec_set_x_openacc(t_species *spec, const int range[][2])
 						spec->main_vector.iy[idx] = j;
 						spec->main_vector.x[idx] = poscell[2 * k];
 						spec->main_vector.y[idx] = poscell[2 * k + 1];
-						spec->main_vector.safe_to_delete[idx] = false;
+						spec->main_vector.invalid[idx] = false;
 					}
 
 			break;
@@ -1136,7 +909,7 @@ void spec_set_x_openacc(t_species *spec, const int range[][2])
 						spec->main_vector.iy[idx] = j;
 						spec->main_vector.x[idx] = poscell[2 * k];
 						spec->main_vector.y[idx] = poscell[2 * k + 1];
-						spec->main_vector.safe_to_delete[idx] = false;
+						spec->main_vector.invalid[idx] = false;
 					}
 			break;
 
@@ -1155,7 +928,7 @@ void spec_set_x_openacc(t_species *spec, const int range[][2])
 						spec->main_vector.iy[idx] = j;
 						spec->main_vector.x[idx] = poscell[2 * k];
 						spec->main_vector.y[idx] = poscell[2 * k + 1];
-						spec->main_vector.safe_to_delete[idx] = false;
+						spec->main_vector.invalid[idx] = false;
 					}
 				}
 
@@ -1164,98 +937,486 @@ void spec_set_x_openacc(t_species *spec, const int range[][2])
 	free(poscell);
 }
 
-void spec_post_processing_2_openacc(t_species *restrict spec, const int limits_y[2])
+void spec_move_window_openacc(t_species *restrict spec, const int limits_y[2])
 {
-	int np_inj = spec->temp_buffer[0].size + spec->temp_buffer[1].size;
-
-//	printf("Invalid: %d\n Temp Buffer Size: %d\n", spec->invalid_count, np_inj);
-
-//	// Update the temp buffers of the spec
-//	update_spec_buffer_gpu(&spec->temp_buffer[0]);
-//	update_spec_buffer_gpu(&spec->temp_buffer[1]);
-
 	// Move window
-	if (spec->moving_window && (spec->iter * spec->dt) > (spec->dx[0] * (spec->n_move + 1)))
+	if (spec->iter * spec->dt > spec->dx[0] * (spec->n_move + 1))
 	{
 		const int start = spec->main_vector.size;
+
+#ifdef ENABLE_PREFETCH
+		int device = -1;
+		cudaGetDevice(&device);
+		spec_prefetch_openacc(&spec->main_vector, spec->n_tiles_x, spec->n_tiles_y, device);
+#endif
+
+		// Shift particles left
+		#pragma acc parallel loop
+		for(int i = 0; i < start; i++)
+			if(!spec->main_vector.invalid[i]) spec->main_vector.ix[i]--;
 
 		// Increase moving window counter
 		spec->n_move++;
 
 		// Inject particles in the right edge of the simulation box
 		const int range[][2] = {{spec->nx[0] - 1, spec->nx[0]}, { limits_y[0], limits_y[1]}};
-		np_inj += (range[0][1] - range[0][0]) * (range[1][1] - range[1][0]) * spec->ppc[0] * spec->ppc[1];
+		int np_inj = (range[0][1] - range[0][0]) * (range[1][1] - range[1][0]) * spec->ppc[0] * spec->ppc[1];
 
 		// Check if buffer is large enough and if not reallocate
 		if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
-		{
-			spec->main_vector.size_max = ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024;
-			realloc_align_buffer((void **) &spec->main_vector.ix, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(int), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.iy, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(int), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.x, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(t_fld), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.y, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(t_fld), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.ux, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(t_fld), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.uy, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(t_fld), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.uz, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(t_fld), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.safe_to_delete, spec->main_vector.size,
-									spec->main_vector.size_max, sizeof(bool), DEFAULT_ALIGNMENT);
-		}
+			part_vector_realloc(&spec->main_vector, ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024);
 
 		spec_set_x_openacc(spec, range);
 		spec_set_u_openacc(spec, start, spec->main_vector.size);
+	}
+}
 
-	}else
+// Transfer particles between regions (if applicable). OpenAcc Task
+void spec_check_boundaries_openacc(t_species *restrict spec, t_species *restrict const upper_spec,
+		t_species *restrict const lower_spec, const int limits_y[2])
+{
+	const int nx0 = spec->nx[0];
+	const int nx1 = spec->nx[1];
+
+	t_particle_vector *restrict const upper_buffer = &upper_spec->incoming_part[0];
+	t_particle_vector *restrict const lower_buffer = &lower_spec->incoming_part[1];
+
+#ifdef ENABLE_PREFETCH
+	int device = -1;
+	cudaGetDevice(&device);
+
+	spec_prefetch_openacc(&spec->main_vector, spec->n_tiles_x, spec->n_tiles_y, device);
+	spec_prefetch_openacc(upper_buffer, 0, 0, device);
+	spec_prefetch_openacc(lower_buffer, 0, 0, device);
+#endif
+
+	// Check if particles are exiting the left boundary (periodic boundary)
+	#pragma acc parallel loop gang vector_length(128)
+	for(int tile_y = 0; tile_y < spec->n_tiles_y; tile_y++)
 	{
-		// Check if buffer is large enough and if not reallocate
-		if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
+		const int tile_idx = tile_y * spec->n_tiles_x;
+		const int begin = spec->main_vector.tile_offset[tile_idx];
+		const int end = spec->main_vector.tile_offset[tile_idx + 1];
+
+		if(spec->moving_window)
 		{
-			spec->main_vector.size_max = ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024;
-			realloc_align_buffer((void **) &spec->main_vector.ix, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(int), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.iy, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(int), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.x, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(t_fld), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.y, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(t_fld), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.ux, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(t_fld), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.uy, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(t_fld), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.uz, spec->main_vector.size, spec->main_vector.size_max,
-									sizeof(t_fld), DEFAULT_ALIGNMENT);
-			realloc_align_buffer((void **) &spec->main_vector.safe_to_delete, spec->main_vector.size,
-									spec->main_vector.size_max, sizeof(bool), DEFAULT_ALIGNMENT);
+			#pragma acc loop vector
+			for(int i = begin; i < end; i++)
+				if (spec->main_vector.ix[i] < 0) spec->main_vector.invalid[i] = true;  // Mark the particle as invalid
+		}else
+		{
+			#pragma acc loop vector
+			for(int i = begin; i < end; i++)
+				if (spec->main_vector.ix[i] < 0) spec->main_vector.ix[i] += nx0;
 		}
 	}
 
-	//Copy the particles from the temporary buffers to the main buffer
-	for (int k = 0; k < 2; k++)
+	// Check if particles are exiting the right boundary (periodic boundary)
+	#pragma acc parallel loop gang vector_length(128)
+	for(int tile_y = 0; tile_y < spec->n_tiles_y; tile_y++)
 	{
-		int size_temp = spec->temp_buffer[k].size;
-		int size = spec->main_vector.size;
+		const int tile_idx = (tile_y + 1) * spec->n_tiles_x - 1;
+		const int begin = spec->main_vector.tile_offset[tile_idx];
+		const int end = spec->main_vector.tile_offset[tile_idx + 1];
 
-		#pragma acc parallel loop firstprivate(size, size_temp)
-		for (int i = 0; i < size_temp; i++)
+		if(spec->moving_window)
 		{
-			spec->main_vector.ix[i + size] = spec->temp_buffer[k].ix[i];
-			spec->main_vector.iy[i + size] = spec->temp_buffer[k].iy[i];
-			spec->main_vector.x[i + size] = spec->temp_buffer[k].x[i];
-			spec->main_vector.y[i + size] = spec->temp_buffer[k].y[i];
-			spec->main_vector.ux[i + size] = spec->temp_buffer[k].ux[i];
-			spec->main_vector.uy[i + size] = spec->temp_buffer[k].uy[i];
-			spec->main_vector.uz[i + size] = spec->temp_buffer[k].uz[i];
-			spec->main_vector.safe_to_delete[i + size] = false;
+			#pragma acc loop vector
+			for(int i = begin; i < end; i++)
+				if (spec->main_vector.ix[i] >= nx0) spec->main_vector.invalid[i] = true;  // Mark the particle as invalid
+		}else
+		{
+			#pragma acc loop vector
+			for(int i = begin; i < end; i++)
+				if (spec->main_vector.ix[i] >= nx0) spec->main_vector.ix[i] -= nx0;
+		}
+	}
+
+	// Check if particles are exiting the lower boundary and needs to be transfer to another region
+	#pragma acc parallel loop gang
+	for (int tile_x = 0; tile_x < spec->n_tiles_x; tile_x++)
+	{
+		const int begin = spec->main_vector.tile_offset[tile_x];
+		const int end = spec->main_vector.tile_offset[tile_x + 1];
+
+		#pragma acc loop vector
+		for (int i = begin; i < end; i++)
+		{
+			bool is_invalid = spec->main_vector.invalid[i];
+
+			if (!is_invalid)
+			{
+				int iy = spec->main_vector.iy[i];
+				int idx;
+
+				// Check if the particle is leaving the box
+				if (iy < limits_y[0])
+				{
+					if (iy < 0) iy += nx1;
+
+					// Reserve a position in the vector
+					#pragma acc atomic capture
+					idx = lower_buffer->size++;
+
+					lower_buffer->ix[idx] = spec->main_vector.ix[i];
+					lower_buffer->iy[idx] = iy;
+					lower_buffer->x[idx] = spec->main_vector.x[i];
+					lower_buffer->y[idx] = spec->main_vector.y[i];
+					lower_buffer->ux[idx] = spec->main_vector.ux[i];
+					lower_buffer->uy[idx] = spec->main_vector.uy[i];
+					lower_buffer->uz[idx] = spec->main_vector.uz[i];
+					lower_buffer->invalid[idx] = false;
+
+					spec->main_vector.invalid[i] = true;  // Mark the particle as invalid
+				}
+			}
+		}
+	}
+
+	// Check if particles are exiting the upper boundary and needs to be transfer to another region
+	#pragma acc parallel loop gang
+	for (int tile_x = 0; tile_x < spec->n_tiles_x; tile_x++)
+	{
+		const int tile_idx = tile_x + (spec->n_tiles_y - 1) * spec->n_tiles_x;
+		const int begin = spec->main_vector.tile_offset[tile_idx];
+		const int end = spec->main_vector.tile_offset[tile_idx + 1];
+
+		#pragma acc loop vector
+		for (int i = begin; i < end; i++)
+		{
+			if (!spec->main_vector.invalid[i])
+			{
+				int iy = spec->main_vector.iy[i];
+				int idx;
+
+				// Check if the particle is leaving the box
+				if (iy >= limits_y[1])
+				{
+					if (iy >= nx1) iy -= nx1;
+
+					#pragma acc atomic capture
+					idx = upper_buffer->size++;
+
+					upper_buffer->ix[idx] = spec->main_vector.ix[i];
+					upper_buffer->iy[idx] = iy;
+					upper_buffer->x[idx] = spec->main_vector.x[i];
+					upper_buffer->y[idx] = spec->main_vector.y[i];
+					upper_buffer->ux[idx] = spec->main_vector.ux[i];
+					upper_buffer->uy[idx] = spec->main_vector.uy[i];
+					upper_buffer->uz[idx] = spec->main_vector.uz[i];
+					upper_buffer->invalid[idx] = false;
+
+					spec->main_vector.invalid[i] = true;  // Mark the particle as invalid
+				}
+			}
+		}
+	}
+}
+
+/*********************************************************************************************
+ Sort
+ *********************************************************************************************/
+
+// Bucket sort (Full)
+void spec_full_sort_openacc(t_species *spec, const int limits_y[2])
+{
+	int iy, ix;
+
+	const int size = spec->main_vector.size;
+	const int n_tiles_x = spec->n_tiles_x;
+	const int n_tiles_y = spec->n_tiles_y;
+
+	if(!spec->main_vector.tile_offset) spec->main_vector.tile_offset = malloc((n_tiles_y * n_tiles_x + 1) * sizeof(int));
+
+	int *restrict tile_offset = spec->main_vector.tile_offset;
+	int *restrict pos = alloc_align_buffer(DEFAULT_ALIGNMENT, spec->main_vector.size * sizeof(int));
+
+	#pragma acc parallel loop
+	for(int i = 0; i <= n_tiles_x * n_tiles_y; i++)
+		tile_offset[i] = 0;
+
+	// Calculate the histogram (number of particles per tile)
+	#pragma acc parallel loop private(ix, iy)
+	for (int i = 0; i < size; i++)
+	{
+		if(!spec->main_vector.invalid[i])
+		{
+			ix = spec->main_vector.ix[i] / TILE_SIZE;
+			iy = (spec->main_vector.iy[i] - limits_y[0]) / TILE_SIZE;
+
+			#pragma acc atomic capture
+			{
+				pos[i] = tile_offset[ix + iy * n_tiles_x];
+				tile_offset[ix + iy * n_tiles_x]++;
+			}
+		}else pos[i] = -1;
+	}
+
+	// Prefix sum to find the initial idx of each tile in the particle vector
+	prefix_sum_openacc(tile_offset, n_tiles_x * n_tiles_y + 1);
+
+	// Calculate the target position of each particle
+	#pragma acc parallel loop private(ix, iy)
+	for (int i = 0; i < size; i++)
+	{
+		if (pos[i] >= 0)
+		{
+			ix = spec->main_vector.ix[i] / TILE_SIZE;
+			iy = (spec->main_vector.iy[i] - limits_y[0]) / TILE_SIZE;
+
+			pos[i] += tile_offset[ix + iy * n_tiles_x];
+		}
+	}
+
+	const int final_size = tile_offset[n_tiles_x * n_tiles_y];
+	spec->main_vector.size = final_size;
+
+	// Move the particles to the correct position
+	spec_move_vector_int(spec->main_vector.ix, NULL, pos, size);
+	spec_move_vector_int(spec->main_vector.iy, NULL, pos, size);
+	spec_move_vector_float(spec->main_vector.x, NULL, pos, size);
+	spec_move_vector_float(spec->main_vector.y, NULL, pos, size);
+	spec_move_vector_float(spec->main_vector.ux, NULL, pos, size);
+	spec_move_vector_float(spec->main_vector.uy, NULL, pos, size);
+	spec_move_vector_float(spec->main_vector.uz, NULL, pos, size);
+
+	// Validate all the particles
+	#pragma acc parallel loop
+	for (int k = 0; k < final_size; k++)
+		spec->main_vector.invalid[k] = false;
+
+	free_align_buffer(pos); // Clean position vector
+}
+
+
+void spec_partial_sort_openacc(t_species *spec, const int limits_y[2])
+{
+	const int offset_region = limits_y[0];
+	const int size = spec->main_vector.size;
+	const int n_tiles_x = spec->n_tiles_x;
+	const int n_tiles_y = spec->n_tiles_y;
+	const int n_tiles = n_tiles_x * n_tiles_y;
+
+	int *restrict tile_offset = spec->main_vector.tile_offset;
+	int *restrict new_tile_offset = malloc((n_tiles + 1) * sizeof(int));
+
+	int np_inj = spec->incoming_part[0].size + spec->incoming_part[1].size;
+
+	// Check if buffer is large enough and if not reallocate
+	if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
+		part_vector_realloc(&spec->main_vector, ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024);
+
+#ifdef ENABLE_PREFETCH
+	int device = -1;
+	cudaGetDevice(&device);
+
+	spec_prefetch_openacc(&spec->main_vector, n_tiles_x, n_tiles_y, device);
+	spec_prefetch_openacc(&spec->incoming_part[0], 0, 0, device);
+	spec_prefetch_openacc(&spec->incoming_part[1], 0, 0, device);
+#endif
+
+	#pragma acc parallel loop
+	for (int i = 0; i < n_tiles + 1; i++)
+		new_tile_offset[i] = 0;
+
+	#pragma acc parallel loop gang
+	for (int i = 0; i < n_tiles + 1; i++)
+	{
+		const int begin = tile_offset[i];
+		const int end = i == n_tiles ? size : tile_offset[i + 1];
+		int count = 0;
+
+		#pragma acc loop vector reduction(+ : count)
+		for(int k = begin; k < end; k++)
+		{
+			int target_tile;
+			int ix = spec->main_vector.ix[k] / TILE_SIZE;
+			int iy = (spec->main_vector.iy[k] - offset_region) / TILE_SIZE;
+			bool is_invalid = spec->main_vector.invalid[k];
+
+			if(!is_invalid)
+			{
+				target_tile = ix + iy * n_tiles_x;
+
+				if(target_tile == i) count++;
+				else
+				{
+					#pragma acc atomic
+					new_tile_offset[target_tile]++;
+				}
+			}
 		}
 
-		spec->temp_buffer[k].size = 0;
-		spec->main_vector.size += size_temp;
+		#pragma acc atomic
+		new_tile_offset[i] += count;
 	}
+
+	for(int n = 0; n < 2; n++)
+	{
+		int size_temp = spec->incoming_part[n].size;;
+
+		#pragma acc parallel loop
+		for(int k = 0; k < size_temp; k++)
+		{
+			int ix = spec->incoming_part[n].ix[k] / TILE_SIZE;
+			int iy = (spec->incoming_part[n].iy[k] - offset_region) / TILE_SIZE;
+			int target_tile = ix + iy * n_tiles_x;
+
+			#pragma acc atomic
+			new_tile_offset[target_tile]++;
+		}
+	}
+
+	// Prefix sum to find the initial idx of each bin
+	prefix_sum_openacc(new_tile_offset, n_tiles + 1);
+	spec->main_vector.size = new_tile_offset[n_tiles];
+	spec->main_vector.tile_offset[n_tiles] = new_tile_offset[n_tiles];
+
+	int *restrict leaving_offset = malloc((n_tiles + 1) * sizeof(int));
+
+	#pragma acc parallel loop gang
+	for(int tile_idx = 0; tile_idx < n_tiles; tile_idx++)
+	{
+		const int begin = new_tile_offset[tile_idx];
+		const int end = new_tile_offset[tile_idx + 1];
+		int leaving_count = 0;
+
+		spec->main_vector.tile_offset[tile_idx] = begin;
+
+		#pragma acc loop vector reduction(+ : leaving_count)
+		for (int k = begin; k < end; k++)
+		{
+			if(k >= size) spec->main_vector.invalid[k] = true;
+
+			int ix = spec->main_vector.ix[k] / TILE_SIZE;
+			int iy = (spec->main_vector.iy[k] - offset_region) / TILE_SIZE;
+			bool is_invalid = spec->main_vector.invalid[k];
+			int target_tile = ix + iy * n_tiles_x;
+
+			if (is_invalid || target_tile != tile_idx) leaving_count++;
+		}
+
+		leaving_offset[tile_idx] = leaving_count;
+	}
+
+	free(new_tile_offset);
+
+	prefix_sum_openacc(leaving_offset, n_tiles + 1);
+	const int temp_buffer_size = leaving_offset[n_tiles];
+
+	int *restrict source_idx = malloc(temp_buffer_size * sizeof(int));
+	int *restrict target_idx = malloc(temp_buffer_size * sizeof(int));
+	int *restrict temp_counter_buffer = malloc(n_tiles * sizeof(int));
+
+	#pragma acc parallel loop
+	for(int i = 0; i < temp_buffer_size; i++)
+		source_idx[i] = -1;
+
+	#pragma acc parallel loop
+	for (int i = 0; i < n_tiles; i++)
+		temp_counter_buffer[i] = leaving_offset[i];
+
+	#pragma acc parallel loop gang
+	for (int tile_idx = 0; tile_idx < n_tiles; tile_idx++)
+	{
+		const int begin = tile_offset[tile_idx];
+		const int end = tile_offset[tile_idx + 1];
+		int offset = leaving_offset[tile_idx];
+
+		#pragma acc loop vector
+		for (int k = begin; k < end; k++)
+		{
+			int idx;
+
+			int ix = spec->main_vector.ix[k] / TILE_SIZE;
+			int iy = (spec->main_vector.iy[k] - offset_region) / TILE_SIZE;
+			bool is_invalid = spec->main_vector.invalid[k];
+			int target_tile = ix + iy * n_tiles_x;
+
+			if (is_invalid)
+			{
+				#pragma acc atomic capture
+				idx = offset++;
+
+				target_idx[idx] = k;
+
+			} else if (target_tile != tile_idx)
+			{
+				#pragma acc atomic capture
+				idx = offset++;
+
+				target_idx[idx] = k;
+
+				#pragma acc atomic capture
+				idx = temp_counter_buffer[target_tile]++;
+
+				source_idx[idx] = k;
+			}
+		}
+	}
+
+	#pragma acc parallel loop
+	for(int k = spec->main_vector.size; k < size; k++)
+	{
+		int idx;
+		int ix = spec->main_vector.ix[k] / TILE_SIZE;
+		int iy = (spec->main_vector.iy[k] - offset_region) / TILE_SIZE;
+		bool is_invalid = spec->main_vector.invalid[k];
+
+		int target_tile = ix + iy * n_tiles_x;
+
+		if (!is_invalid)
+		{
+			#pragma acc atomic capture
+			idx = temp_counter_buffer[target_tile]++;
+
+			source_idx[idx] = k;
+		}
+	}
+
+	spec_move_vector_int(spec->main_vector.ix, source_idx, target_idx, temp_buffer_size);
+	spec_move_vector_int(spec->main_vector.iy, source_idx, target_idx, temp_buffer_size);
+	spec_move_vector_float(spec->main_vector.x, source_idx, target_idx, temp_buffer_size);
+	spec_move_vector_float(spec->main_vector.y, source_idx, target_idx, temp_buffer_size);
+	spec_move_vector_float(spec->main_vector.ux, source_idx, target_idx, temp_buffer_size);
+	spec_move_vector_float(spec->main_vector.uy, source_idx, target_idx, temp_buffer_size);
+	spec_move_vector_float(spec->main_vector.uz, source_idx, target_idx, temp_buffer_size);
+
+	for(int n = 0; n < 2; n++)
+	{
+		int size_temp = spec->incoming_part[n].size;;
+
+		#pragma acc parallel loop
+		for(int k = 0; k < size_temp; k++)
+		{
+			int idx;
+			int ix = spec->incoming_part[n].ix[k] / TILE_SIZE;
+			int iy = (spec->incoming_part[n].iy[k] - offset_region) / TILE_SIZE;
+			int target_tile = ix + iy * n_tiles_x;
+
+			#pragma acc atomic capture
+			idx = temp_counter_buffer[target_tile]++;
+
+			int target = target_idx[idx];
+
+			spec->main_vector.ix[target] = spec->incoming_part[n].ix[k];
+			spec->main_vector.iy[target] = spec->incoming_part[n].iy[k];
+			spec->main_vector.x[target] = spec->incoming_part[n].x[k];
+			spec->main_vector.y[target] = spec->incoming_part[n].y[k];
+			spec->main_vector.ux[target] = spec->incoming_part[n].ux[k];
+			spec->main_vector.uy[target] = spec->incoming_part[n].uy[k];
+			spec->main_vector.uz[target] = spec->incoming_part[n].uz[k];
+		}
+
+		spec->incoming_part[n].size = 0;
+	}
+
+	#pragma acc parallel loop
+	for(int i = 0; i < spec->main_vector.size; i++)
+		spec->main_vector.invalid[i] = false;
+
+	free(temp_counter_buffer);
+	free(leaving_offset);
+	free(target_idx);
+	free(source_idx);
 }

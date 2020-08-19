@@ -42,7 +42,7 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 
 	size = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + nx[1] + gc[1][1]);
 	emf->total_size = size;
-	emf->overlap = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + gc[1][1]);
+	emf->overlap_size = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + gc[1][1]);
 
 	emf->E_buf = alloc_align_buffer(DEFAULT_ALIGNMENT, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
 	emf->B_buf = alloc_align_buffer(DEFAULT_ALIGNMENT, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
@@ -304,6 +304,7 @@ void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const
 			break;
 		default:
 			fprintf(stderr, "Invalid field type selected, returning\n");
+			return;
 			break;
 	}
 

@@ -14,6 +14,7 @@
 #define __CURRENT__
 
 #include <stdbool.h>
+#include <stddef.h>
 #include "zpic.h"
 
 enum smooth_type {
@@ -37,7 +38,7 @@ typedef struct {
 	int nrow;
 	int gc[2][2];
 	int total_size;
-	int overlap_zone;
+	int overlap_size;
 
 	// Box size
 	t_fld box[2];
@@ -77,16 +78,16 @@ void current_report(const float *restrict global_buffer, const int iter_num, con
 #pragma oss task out(current->J_buf[0; current->total_size]) label(Current Reset)
 void current_zero(t_current *current);
 
-#pragma oss task inout(current->J_buf[0; current->overlap_zone]) \
-inout(current->J_upper[-current->gc[0][0]; current->overlap_zone]) \
+#pragma oss task inout(current->J_buf[0; current->overlap_size]) \
+inout(current->J_upper[-current->gc[0][0]; current->overlap_size]) \
 label(Current Reduction Y)
 void current_reduction_y(t_current *current); // Each region only update the zone in the top edge
 
 #pragma oss task inout(current->J_buf[0; current->total_size]) label(Current Reduction X)
 void current_reduction_x(t_current *current);
 
-#pragma oss task inout(current->J_buf[0; current->overlap_zone]) \
-inout(current->J_upper[-current->gc[0][0]; current->overlap_zone]) \
+#pragma oss task inout(current->J_buf[0; current->overlap_size]) \
+inout(current->J_upper[-current->gc[0][0]; current->overlap_size]) \
 label(Current Update GC)
 void current_gc_update_y(t_current *current);
 
@@ -102,8 +103,8 @@ void current_smooth_y(t_current *current, enum smooth_type type);
 	label(Current Reset (GPU)) device(openacc)
 void current_zero_openacc(t_current *current);
 
-#pragma oss task inout(current->J_buf[0; current->overlap_zone]) \
-inout(current->J_upper[-current->gc[0][0]; current->overlap_zone]) \
+#pragma oss task inout(current->J_buf[0; current->overlap_size]) \
+inout(current->J_upper[-current->gc[0][0]; current->overlap_size]) \
 label(Current Reduction Y (GPU)) device(openacc)
 void current_reduction_y_openacc(t_current *current);
 
@@ -115,9 +116,14 @@ void current_reduction_x_openacc(t_current *current);
 label(Current Smooth X (GPU)) device(openacc)
 void current_smooth_x_openacc(t_current *current);
 
-#pragma oss task inout(current->J_buf[0; current->overlap_zone]) \
-inout(current->J_upper[-current->gc[0][0]; current->overlap_zone]) \
+#pragma oss task inout(current->J_buf[0; current->overlap_size]) \
+inout(current->J_upper[-current->gc[0][0]; current->overlap_size]) \
 label(Current Update GC (GPU)) device(openacc)
 void current_gc_update_y_openacc(t_current *current);
+
+// Prefetch
+#ifdef ENABLE_PREFETCH
+void current_prefetch_openacc(t_vfld *buf, const size_t size, const int device);
+#endif
 
 #endif

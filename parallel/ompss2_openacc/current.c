@@ -33,7 +33,7 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 
 	size = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + nx[1] + gc[1][1]);
 	current->total_size = size;
-	current->overlap_zone = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + gc[1][1]);
+	current->overlap_size = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + gc[1][1]);
 
 	current->J_buf = alloc_align_buffer(DEFAULT_ALIGNMENT, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
 	assert(current->J_buf);

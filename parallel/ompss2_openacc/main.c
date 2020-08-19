@@ -28,7 +28,6 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-//#include "input/weibel-500-151M-1024-1024.c"
 #include "input/lwfa-4000-16M-2000-512.c"
 
 int main(int argc, const char *argv[])
@@ -48,6 +47,10 @@ int main(int argc, const char *argv[])
 	int n;
 	float t;
 
+#ifdef ENABLE_PREFETCH
+	fprintf(stderr, "Enabling prefetching ...\n");
+#endif
+
 	fprintf(stderr, "Starting simulation ...\n\n");
 
 	uint64_t t0, t1;
@@ -55,9 +58,9 @@ int main(int argc, const char *argv[])
 
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-//		if(n == 2) break;
+//		if(n == 4) break;
 
-//		fprintf(stderr, "n = %i, t = %f\n", n, t);
+		fprintf(stderr, "n = %i, t = %f\n", n, t);
 
 		if (report(n, sim.ndump))
 		{

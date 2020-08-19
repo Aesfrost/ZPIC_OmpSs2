@@ -14,6 +14,7 @@
 #define __CURRENT__
 
 #include <stdbool.h>
+#include <stddef.h>
 #include "zpic.h"
 
 enum smooth_type {
@@ -37,7 +38,7 @@ typedef struct {
 	int nrow;
 	int gc[2][2];
 	int total_size;
-	int overlap_zone;
+	int overlap_size;
 
 	// Box size
 	t_fld box[2];
@@ -87,5 +88,10 @@ void current_reduction_y_openacc(t_current *current);
 void current_reduction_x_openacc(t_current *current);
 void current_smooth_x_openacc(t_current *current);
 void current_gc_update_y_openacc(t_current *current);
+
+// Prefetch
+#ifdef ENABLE_PREFETCH
+void current_prefetch_openacc(t_vfld *buf, const size_t size, const int device);
+#endif
 
 #endif

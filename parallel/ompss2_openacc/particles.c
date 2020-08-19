@@ -45,72 +45,90 @@ double spec_perf(void)
 }
 
 /*********************************************************************************************
- Vector Handling
+ * Vector Utilities
  *********************************************************************************************/
-// Convert SoA vector into AoS vector, or vice-versa
-void convert_vector(t_particle_vector *restrict vector, enum vector_type final_type)
+
+void part_vector_alloc(t_particle_vector *vector, const int size_max)
 {
-	if(vector->type != final_type)
-	{
-		vector->type = final_type;
+	 vector->ix = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(int));
+	 vector->iy = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(int));
+	 vector->x = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
+	 vector->y = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
+	 vector->ux = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
+	 vector->uy = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
+	 vector->uz = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
+	 vector->invalid = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(bool));
 
-		switch (final_type) {
-			case SoA:
-				vector->ix = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(int));
-				vector->iy = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(int));
-				vector->x = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_fld));
-				vector->y = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_fld));
-				vector->ux = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_fld));
-				vector->uy = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_fld));
-				vector->uz = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_fld));
-				vector->safe_to_delete = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(bool));
-
-				for(int i = 0; i < vector->size; i++)
-				{
-					vector->ix[i] = vector->part[i].ix;
-					vector->iy[i] = vector->part[i].iy;
-					vector->x[i] = vector->part[i].x;
-					vector->y[i] = vector->part[i].y;
-					vector->ux[i] = vector->part[i].ux;
-					vector->uy[i] = vector->part[i].uy;
-					vector->uz[i] = vector->part[i].uz;
-					vector->safe_to_delete[i] = vector->part[i].safe_to_delete;
-				}
-
-				free_align_buffer(vector->part);
-				break;
-
-			case AoS:
-
-				vector->part = alloc_align_buffer(DEFAULT_ALIGNMENT, vector->size_max * sizeof(t_part));
-
-				for(int i = 0; i < vector->size; i++)
-				{
-					vector->part[i].ix = vector->ix[i];
-					vector->part[i].iy = vector->iy[i];
-					vector->part[i].x = vector->x[i];
-					vector->part[i].y = vector->y[i];
-					vector->part[i].ux = vector->ux[i];
-					vector->part[i].uy = vector->uy[i];
-					vector->part[i].uz = vector->uz[i];
-					vector->part[i].safe_to_delete = vector->safe_to_delete[i];
-				}
-
-				free_align_buffer(vector->ix);
-				free_align_buffer(vector->iy);
-				free_align_buffer(vector->x);
-				free_align_buffer(vector->y);
-				free_align_buffer(vector->ux);
-				free_align_buffer(vector->uy);
-				free_align_buffer(vector->uz);
-				free_align_buffer(vector->safe_to_delete);
-				break;
-			default:
-				break;
-		}
-	}
+	 vector->tile_offset = NULL;
+	 vector->size_max = size_max;
+	 vector->size = 0;
 }
 
+void part_vector_free(t_particle_vector *vector)
+{
+	 free_align_buffer(vector->ix);
+	 free_align_buffer(vector->iy);
+	 free_align_buffer(vector->x);
+	 free_align_buffer(vector->y);
+	 free_align_buffer(vector->ux);
+	 free_align_buffer(vector->uy);
+	 free_align_buffer(vector->uz);
+	 free_align_buffer(vector->invalid);
+
+	 if (vector->tile_offset) free(vector->tile_offset);
+}
+
+void part_vector_realloc(t_particle_vector *vector, const int new_size)
+{
+	 vector->size_max = new_size;
+
+	 realloc_align_buffer((void**) &vector->ix, vector->size, vector->size_max, sizeof(int),
+						  DEFAULT_ALIGNMENT);
+	 realloc_align_buffer((void**) &vector->iy, vector->size, vector->size_max, sizeof(int),
+						  DEFAULT_ALIGNMENT);
+	 realloc_align_buffer((void**) &vector->x, vector->size, vector->size_max, sizeof(t_part_data),
+						  DEFAULT_ALIGNMENT);
+	 realloc_align_buffer((void**) &vector->y, vector->size, vector->size_max, sizeof(t_part_data),
+						  DEFAULT_ALIGNMENT);
+	 realloc_align_buffer((void**) &vector->ux, vector->size, vector->size_max, sizeof(t_part_data),
+						  DEFAULT_ALIGNMENT);
+	 realloc_align_buffer((void**) &vector->uy, vector->size, vector->size_max, sizeof(t_part_data),
+						  DEFAULT_ALIGNMENT);
+	 realloc_align_buffer((void**) &vector->uz, vector->size, vector->size_max, sizeof(t_part_data),
+						  DEFAULT_ALIGNMENT);
+	 realloc_align_buffer((void**) &vector->invalid, vector->size, vector->size_max, sizeof(bool),
+						  DEFAULT_ALIGNMENT);
+}
+
+void part_vector_assign_valid_part(const t_particle_vector *source, const int source_idx,
+									t_particle_vector *target, const int target_idx)
+{
+	 target->ix[target_idx] = source->ix[source_idx];
+	 target->iy[target_idx] = source->iy[source_idx];
+	 target->x[target_idx] = source->x[source_idx];
+	 target->y[target_idx] = source->y[source_idx];
+	 target->ux[target_idx] = source->ux[source_idx];
+	 target->uy[target_idx] = source->uy[source_idx];
+	 target->uz[target_idx] = source->uz[source_idx];
+	 target->invalid[target_idx] = source->invalid[source_idx];
+}
+
+void part_vector_memcpy(const t_particle_vector *source, t_particle_vector *target, const int begin,
+						 const int size)
+{
+	 memcpy(target->ix, source->ix + begin, size * sizeof(int));
+	 memcpy(target->iy, source->iy + begin, size * sizeof(int));
+	 memcpy(target->x, source->x + begin, size * sizeof(t_part_data));
+	 memcpy(target->y, source->y + begin, size * sizeof(t_part_data));
+	 memcpy(target->ux, source->ux + begin, size * sizeof(t_part_data));
+	 memcpy(target->uy, source->uy + begin, size * sizeof(t_part_data));
+	 memcpy(target->uz, source->uz + begin, size * sizeof(t_part_data));
+	 memcpy(target->invalid, source->invalid + begin, size * sizeof(bool));
+}
+
+/*********************************************************************************************
+ Vector Handling
+ *********************************************************************************************/
 /**
  * Add to the content of the temporary buffers into the particles vector
  * @param spec  Particle species
@@ -120,131 +138,52 @@ void spec_update_main_vector(t_species *spec)
 	int i = 0, j, k;
 	int size = spec->main_vector.size;
 
-	const int np_inj = spec->temp_buffer[0].size + spec->temp_buffer[1].size;
+	const int np_inj = spec->incoming_part[0].size + spec->incoming_part[1].size;
 
 	// Check if buffer is large enough and if not reallocate
 	if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
-	{
-		spec->main_vector.size_max = ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024;
-		realloc_align_buffer((void **) &spec->main_vector.part, spec->main_vector.size, spec->main_vector.size_max,
-								sizeof(t_part), DEFAULT_ALIGNMENT);
-	}
+		part_vector_realloc(&spec->main_vector, ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024);
 
 	//Loop through all the 2 temp buffers
 	for (k = 0; k < 2; k++)
 	{
-		int size_temp = spec->temp_buffer[k].size;
+		int size_temp = spec->incoming_part[k].size;
 
-		switch (spec->temp_buffer[k].type)
+		//Loop through all elements on the buffer, copying to the main_vector particle buffer (if applicable)
+		for (j = 0; j < size_temp; j++)
 		{
-			case AoS:
-				//Loop through all elements on the buffer, copying to the main_vector particle buffer (if applicable)
-				for (j = 0; j < size_temp; j++)
-				{
-					while (i < size && !spec->main_vector.part[i].safe_to_delete) i++;   //Checks if a particle can be safely deleted
-					if (i < size) spec->main_vector.part[i] = spec->temp_buffer[k].part[j];
-					else
-					{
-						spec->main_vector.part[spec->main_vector.size] = spec->temp_buffer[k].part[j];
-						spec->main_vector.size++;
-					}
-				}
-				break;
-
-			case SoA:
-				//Loop through all elements on the buffer, copying to the main_vector particle buffer (if applicable)
-				for (j = 0; j < size_temp; j++)
-				{
-					while (i < size && !spec->main_vector.part[i].safe_to_delete) i++;   //Checks if a particle can be safely deleted
-					if (i < size)
-					{
-						spec->main_vector.part[i].ix = spec->temp_buffer[k].ix[j];
-						spec->main_vector.part[i].iy = spec->temp_buffer[k].iy[j];
-						spec->main_vector.part[i].x = spec->temp_buffer[k].x[j];
-						spec->main_vector.part[i].y = spec->temp_buffer[k].y[j];
-						spec->main_vector.part[i].ux = spec->temp_buffer[k].ux[j];
-						spec->main_vector.part[i].uy = spec->temp_buffer[k].uy[j];
-						spec->main_vector.part[i].uz = spec->temp_buffer[k].uz[j];
-						spec->main_vector.part[i].safe_to_delete = spec->temp_buffer[k].safe_to_delete[j];
-						i++;
-					} else
-					{
-						spec->main_vector.part[spec->main_vector.size].ix = spec->temp_buffer[k].ix[j];
-						spec->main_vector.part[spec->main_vector.size].iy = spec->temp_buffer[k].iy[j];
-						spec->main_vector.part[spec->main_vector.size].x = spec->temp_buffer[k].x[j];
-						spec->main_vector.part[spec->main_vector.size].y = spec->temp_buffer[k].y[j];
-						spec->main_vector.part[spec->main_vector.size].ux = spec->temp_buffer[k].ux[j];
-						spec->main_vector.part[spec->main_vector.size].uy = spec->temp_buffer[k].uy[j];
-						spec->main_vector.part[spec->main_vector.size].uz = spec->temp_buffer[k].uz[j];
-						spec->main_vector.part[spec->main_vector.size].safe_to_delete = spec->temp_buffer[k].safe_to_delete[j];
-						spec->main_vector.size++;
-					}
-				}
-				break;
+			while (i < size && !spec->main_vector.invalid[i])
+				i++;   //Checks if a particle can be safely deleted
+			if (i < size)
+			{
+				part_vector_assign_valid_part(&spec->incoming_part[k], j, &spec->main_vector, i);
+				i++;
+			} else
+			{
+				part_vector_assign_valid_part(&spec->incoming_part[k], j, &spec->main_vector,
+												spec->main_vector.size);
+				spec->main_vector.size++;
+			}
 		}
+
 	}
 
 	if (i < size)
 	{
 		while (i < spec->main_vector.size)
 		{
-			if (spec->main_vector.part[i].safe_to_delete)
-				spec->main_vector.part[i] = spec->main_vector.part[--spec->main_vector.size];
+			if (spec->main_vector.invalid[i])
+			{
+				spec->main_vector.size--;
+				part_vector_assign_valid_part(&spec->main_vector, spec->main_vector.size, &spec->main_vector, i);
+			}
 			else i++;
 		}
 	}
 
 	//Clean the temp buffer
 	for (k = 0; k < 2; k++)
-		spec->temp_buffer[k].size = 0;
-
-}
-
-/**
- * Add the particle to the temporary buffer
- * @param spec  Particle species
- * @param part  particle to be added
- */
-void spec_add_to_vector(t_particle_vector *restrict vector, t_part part)
-{
-	switch (vector->type)
-	{
-		case AoS:
-			if (vector->size + 1 > vector->size_max)
-			{
-				vector->size_max = vector->size_max + 1024;
-				realloc_align_buffer((void **) &vector->part, vector->size, vector->size_max, sizeof(t_part), DEFAULT_ALIGNMENT);
-			}
-
-			vector->part[vector->size] = part;
-			vector->size++;
-			break;
-		case SoA:
-			if (vector->size + 1 > vector->size_max)
-			{
-				vector->size_max = vector->size_max + 1024;
-				realloc_align_buffer((void **) &vector->ix, vector->size, vector->size_max, sizeof(int), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &vector->iy, vector->size, vector->size_max, sizeof(int), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &vector->x, vector->size, vector->size_max, sizeof(t_fld), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &vector->y, vector->size, vector->size_max, sizeof(t_fld), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &vector->ux, vector->size, vector->size_max, sizeof(t_fld), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &vector->uy, vector->size, vector->size_max, sizeof(t_fld), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &vector->uz, vector->size, vector->size_max, sizeof(t_fld), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &vector->safe_to_delete, vector->size, vector->size_max, sizeof(bool),
-										DEFAULT_ALIGNMENT);
-			}
-
-			vector->ix[vector->size] = part.ix;
-			vector->iy[vector->size] = part.iy;
-			vector->x[vector->size] = part.x;
-			vector->y[vector->size] = part.y;
-			vector->ux[vector->size] = part.ux;
-			vector->uy[vector->size] = part.uy;
-			vector->uz[vector->size] = part.uz;
-			vector->safe_to_delete[vector->size] = part.safe_to_delete;
-			vector->size++;
-			break;
-	}
+		spec->incoming_part[k].size = 0;
 }
 
 /*********************************************************************************************
@@ -259,25 +198,11 @@ void spec_add_to_vector(t_particle_vector *restrict vector, t_part part)
  */
 void spec_set_u(t_species *spec, const int start, const int end)
 {
-
-	switch (spec->main_vector.type) {
-		case SoA:
-			for (int i = start; i <= end; i++)
-			{
-				spec->main_vector.ux[i] = spec->ufl[0] + spec->uth[0] * rand_norm();
-				spec->main_vector.uy[i] = spec->ufl[1] + spec->uth[1] * rand_norm();
-				spec->main_vector.uz[i] = spec->ufl[2] + spec->uth[2] * rand_norm();
-			}
-			break;
-
-		case AoS:
-			for (int i = start; i <= end; i++)
-			{
-				spec->main_vector.part[i].ux = spec->ufl[0] + spec->uth[0] * rand_norm();
-				spec->main_vector.part[i].uy = spec->ufl[1] + spec->uth[1] * rand_norm();
-				spec->main_vector.part[i].uz = spec->ufl[2] + spec->uth[2] * rand_norm();
-			}
-			break;
+	for (int i = start; i <= end; i++)
+	{
+		spec->main_vector.ux[i] = spec->ufl[0] + spec->uth[0] * rand_norm();
+		spec->main_vector.uy[i] = spec->ufl[1] + spec->uth[1] * rand_norm();
+		spec->main_vector.uz[i] = spec->ufl[2] + spec->uth[2] * rand_norm();
 	}
 }
 
@@ -307,152 +232,76 @@ void spec_set_x(t_species *spec, const int range[][2])
 
 	ip = spec->main_vector.size;
 
-	if(spec->main_vector.type == AoS)
+	// Set position of particles in the specified grid range according to the density profile
+	switch (spec->density.type)
 	{
-		// Set position of particles in the specified grid range according to the density profile
-		switch (spec->density.type)
-		{
-			case STEP:    // Step like density profile
+		case STEP:    // Step like density profile
 
-				// Get edge position normalized to cell size;
-				start = spec->density.start / spec->dx[0] - spec->n_move;
+			// Get edge position normalized to cell size;
+			start = spec->density.start / spec->dx[0] - spec->n_move;
 
-				for (j = range[1][0]; j < range[1][1]; j++)
+			for (j = range[1][0]; j < range[1][1]; j++)
+			{
+				for (i = range[0][0]; i < range[0][1]; i++)
 				{
-					for (i = range[0][0]; i < range[0][1]; i++)
+					for (k = 0; k < npc; k++)
 					{
-						for (k = 0; k < npc; k++)
-						{
-							if (i + poscell[2 * k] > start)
-							{
-								spec->main_vector.part[ip].ix = i;
-								spec->main_vector.part[ip].iy = j;
-								spec->main_vector.part[ip].x = poscell[2 * k];
-								spec->main_vector.part[ip].y = poscell[2 * k + 1];
-								spec->main_vector.part[ip].safe_to_delete = false;
-								ip++;
-							}
-						}
-					}
-				}
-				break;
-
-			case SLAB:    // Slab like density profile
-
-				// Get edge position normalized to cell size;
-				start = spec->density.start / spec->dx[0] - spec->n_move;
-				end = spec->density.end / spec->dx[0] - spec->n_move;
-
-				for (j = range[1][0]; j < range[1][1]; j++)
-				{
-					for (i = range[0][0]; i < range[0][1]; i++)
-					{
-						for (k = 0; k < npc; k++)
-						{
-							if (i + poscell[2 * k] > start && i + poscell[2 * k] < end)
-							{
-								spec->main_vector.part[ip].ix = i;
-								spec->main_vector.part[ip].iy = j;
-								spec->main_vector.part[ip].x = poscell[2 * k];
-								spec->main_vector.part[ip].y = poscell[2 * k + 1];
-								spec->main_vector.part[ip].safe_to_delete = false;
-								ip++;
-							}
-						}
-					}
-				}
-				break;
-
-			default:    // Uniform density
-				for (j = range[1][0]; j < range[1][1]; j++)
-				{
-					for (i = range[0][0]; i < range[0][1]; i++)
-					{
-						for (k = 0; k < npc; k++)
-						{
-							spec->main_vector.part[ip].ix = i;
-							spec->main_vector.part[ip].iy = j;
-							spec->main_vector.part[ip].x = poscell[2 * k];
-							spec->main_vector.part[ip].y = poscell[2 * k + 1];
-							spec->main_vector.part[ip].safe_to_delete = false;
-							ip++;
-						}
-					}
-				}
-		}
-	}else if(spec->main_vector.type == SoA)
-	{
-		// Set position of particles in the specified grid range according to the density profile
-		switch (spec->density.type)
-		{
-			case STEP:    // Step like density profile
-
-				// Get edge position normalized to cell size;
-				start = spec->density.start / spec->dx[0] - spec->n_move;
-
-				for (j = range[1][0]; j < range[1][1]; j++)
-				{
-					for (i = range[0][0]; i < range[0][1]; i++)
-					{
-						for (k = 0; k < npc; k++)
-						{
-							if (i + poscell[2 * k] > start)
-							{
-								spec->main_vector.ix[ip] = i;
-								spec->main_vector.iy[ip] = j;
-								spec->main_vector.x[ip] = poscell[2 * k];
-								spec->main_vector.y[ip] = poscell[2 * k + 1];
-								spec->main_vector.safe_to_delete[ip] = false;
-								ip++;
-							}
-						}
-					}
-				}
-				break;
-
-			case SLAB:    // Slab like density profile
-
-				// Get edge position normalized to cell size;
-				start = spec->density.start / spec->dx[0] - spec->n_move;
-				end = spec->density.end / spec->dx[0] - spec->n_move;
-
-				for (j = range[1][0]; j < range[1][1]; j++)
-				{
-					for (i = range[0][0]; i < range[0][1]; i++)
-					{
-						for (k = 0; k < npc; k++)
-						{
-							if (i + poscell[2 * k] > start && i + poscell[2 * k] < end)
-							{
-								spec->main_vector.ix[ip] = i;
-								spec->main_vector.iy[ip] = j;
-								spec->main_vector.x[ip] = poscell[2 * k];
-								spec->main_vector.y[ip] = poscell[2 * k + 1];
-								spec->main_vector.safe_to_delete[ip] = false;
-								ip++;
-							}
-						}
-					}
-				}
-				break;
-
-			default:    // Uniform density
-				for (j = range[1][0]; j < range[1][1]; j++)
-				{
-					for (i = range[0][0]; i < range[0][1]; i++)
-					{
-						for (k = 0; k < npc; k++)
+						if (i + poscell[2 * k] > start)
 						{
 							spec->main_vector.ix[ip] = i;
 							spec->main_vector.iy[ip] = j;
 							spec->main_vector.x[ip] = poscell[2 * k];
 							spec->main_vector.y[ip] = poscell[2 * k + 1];
-							spec->main_vector.safe_to_delete[ip] = false;
+							spec->main_vector.invalid[ip] = false;
 							ip++;
 						}
 					}
 				}
-		}
+			}
+			break;
+
+		case SLAB:    // Slab like density profile
+
+			// Get edge position normalized to cell size;
+			start = spec->density.start / spec->dx[0] - spec->n_move;
+			end = spec->density.end / spec->dx[0] - spec->n_move;
+
+			for (j = range[1][0]; j < range[1][1]; j++)
+			{
+				for (i = range[0][0]; i < range[0][1]; i++)
+				{
+					for (k = 0; k < npc; k++)
+					{
+						if (i + poscell[2 * k] > start && i + poscell[2 * k] < end)
+						{
+							spec->main_vector.ix[ip] = i;
+							spec->main_vector.iy[ip] = j;
+							spec->main_vector.x[ip] = poscell[2 * k];
+							spec->main_vector.y[ip] = poscell[2 * k + 1];
+							spec->main_vector.invalid[ip] = false;
+							ip++;
+						}
+					}
+				}
+			}
+			break;
+
+		default:    // Uniform density
+			for (j = range[1][0]; j < range[1][1]; j++)
+			{
+				for (i = range[0][0]; i < range[0][1]; i++)
+				{
+					for (k = 0; k < npc; k++)
+					{
+						spec->main_vector.ix[ip] = i;
+						spec->main_vector.iy[ip] = j;
+						spec->main_vector.x[ip] = poscell[2 * k];
+						spec->main_vector.y[ip] = poscell[2 * k + 1];
+						spec->main_vector.invalid[ip] = false;
+						ip++;
+					}
+				}
+			}
 	}
 
 	spec->main_vector.size = ip;
@@ -469,42 +318,13 @@ void spec_inject_particles(t_species *spec, const int range[][2])
 
 	// Check if buffer is large enough and if not reallocate
 	if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
-	{
-		spec->main_vector.size_max = ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024;
-
-		switch (spec->main_vector.type)
-		{
-			case AoS:
-				realloc_align_buffer((void **) &spec->main_vector.part, spec->main_vector.size, spec->main_vector.size_max,
-										sizeof(t_part), DEFAULT_ALIGNMENT);
-				break;
-			case SoA:
-				realloc_align_buffer((void **) &spec->main_vector.ix, spec->main_vector.size, spec->main_vector.size_max,
-										sizeof(int), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &spec->main_vector.iy, spec->main_vector.size, spec->main_vector.size_max,
-										sizeof(int), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &spec->main_vector.x, spec->main_vector.size, spec->main_vector.size_max,
-										sizeof(t_fld), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &spec->main_vector.y, spec->main_vector.size, spec->main_vector.size_max,
-										sizeof(t_fld), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &spec->main_vector.ux, spec->main_vector.size, spec->main_vector.size_max,
-										sizeof(t_fld), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &spec->main_vector.uy, spec->main_vector.size, spec->main_vector.size_max,
-										sizeof(t_fld), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &spec->main_vector.uz, spec->main_vector.size, spec->main_vector.size_max,
-										sizeof(t_fld), DEFAULT_ALIGNMENT);
-				realloc_align_buffer((void **) &spec->main_vector.safe_to_delete, spec->main_vector.size,
-										spec->main_vector.size_max, sizeof(bool), DEFAULT_ALIGNMENT);
-				break;
-		}
-	}
+		part_vector_realloc(&spec->main_vector, ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024);
 
 	// Set particle positions
 	spec_set_x(spec, range);
 
 	// Set momentum of injected particles
 	spec_set_u(spec, start, spec->main_vector.size - 1);
-
 }
 
 // Constructor
@@ -536,19 +356,11 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	spec->energy = 0;
 
 	// Initialize particle buffer
-	spec->main_vector.size_max = (npc * region_size * nx[0] / 1024 + 1) * 1024;
-	spec->main_vector.part = alloc_align_buffer(DEFAULT_ALIGNMENT, spec->main_vector.size_max * sizeof(t_part));
-	spec->main_vector.size = 0;
-	spec->main_vector.type = AoS;
+	part_vector_alloc(&spec->main_vector, (npc * region_size * nx[0] / 1024 + 1) * 1024);
 
 	// Initialize temp buffer
 	for (i = 0; i < 2; i++)
-	{
-		spec->temp_buffer[i].size_max = (npc * nx[0] / 1024 + 1) * 1024;
-		spec->temp_buffer[i].part = alloc_align_buffer(DEFAULT_ALIGNMENT, spec->temp_buffer[i].size_max * sizeof(t_part));
-		spec->temp_buffer[i].size = 0;
-		spec->temp_buffer[i].type = AoS;
-	}
+		part_vector_alloc(&spec->incoming_part[i], (npc * nx[0] / 1024 + 1) * 1024);
 
 	// Initialize density profile
 	if (density)
@@ -593,45 +405,16 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	spec->n_move = 0;
 
 	// Sort
-	spec->n_bins_x = ceil((float) spec->nx[0] / BIN_SIZE);
-	spec->n_bins_y = ceil((float) region_size / BIN_SIZE);
-	spec->bin_offset = NULL;
+	spec->n_tiles_x = ceil((float) spec->nx[0] / TILE_SIZE);
+	spec->n_tiles_y = ceil((float) region_size / TILE_SIZE);
 }
 
 void spec_delete(t_species *spec)
 {
-	if(spec->main_vector.type == AoS) free_align_buffer(spec->main_vector.part);
-	else if(spec->main_vector.type == SoA)
-	{
-		free_align_buffer(spec->main_vector.ix);
-		free_align_buffer(spec->main_vector.iy);
-		free_align_buffer(spec->main_vector.x);
-		free_align_buffer(spec->main_vector.y);
-		free_align_buffer(spec->main_vector.ux);
-		free_align_buffer(spec->main_vector.uy);
-		free_align_buffer(spec->main_vector.uz);
-		free_align_buffer(spec->main_vector.safe_to_delete);
-	}
+	part_vector_free(&spec->main_vector);
 
 	for(int n = 0; n < 2; n++)
-		if(spec->temp_buffer[n].type == AoS) free_align_buffer(spec->temp_buffer[n].part);
-		else
-		{
-			free_align_buffer(spec->temp_buffer[n].ix);
-			free_align_buffer(spec->temp_buffer[n].iy);
-			free_align_buffer(spec->temp_buffer[n].x);
-			free_align_buffer(spec->temp_buffer[n].y);
-			free_align_buffer(spec->temp_buffer[n].ux);
-			free_align_buffer(spec->temp_buffer[n].uy);
-			free_align_buffer(spec->temp_buffer[n].uz);
-			free_align_buffer(spec->temp_buffer[n].safe_to_delete);
-		}
-
-	if(spec->bin_offset) free(spec->bin_offset);
-
-	spec->main_vector.size = -1;
-	spec->temp_buffer[0].size = -1;
-	spec->temp_buffer[1].size = -1;
+		part_vector_free(&spec->incoming_part[n]);
 }
 
 /*********************************************************************************************
@@ -889,122 +672,33 @@ void dep_current_zamb(int ix, int iy, int di, int dj, float x0, float y0, float 
  Sort
  *********************************************************************************************/
 
-//void spec_sort(t_species *spec, const int bin_size)
-//{
-//	const int n_bins_x = ceil((float) spec->nx[0] / bin_size);
-//	const int n_bins_y = ceil((float) spec->nx[1] / bin_size);
-//	t_part **bins = malloc(n_bins_y * n_bins_x * sizeof(t_part*));
-//	int *count = malloc(n_bins_y * n_bins_x * sizeof(int));
-//	int *prefix_sum = malloc(n_bins_y * n_bins_x * sizeof(int));
-//	int *temp = malloc(n_bins_y * n_bins_x * sizeof(int));
-//
-//	int idx, ix, iy;
-//
-//	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-//		count[i] = 0;
-//
-//	// Count the number of elements in each bin
-//	for (int i = 0; i < spec->main_vector.size; i++)
-//		if (!spec->main_vector.part[i].safe_to_delete)
-//		{
-//			ix = spec->main_vector.part[i].ix / bin_size;
-//			iy = spec->main_vector.part[i].iy / bin_size;
-//
-//			count[ix + iy * n_bins_x]++;
-//		}
-//
-//	// Allocate the bins
-//	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-//		bins[i] = malloc(count[i] * sizeof(t_part));
-//
-//	memcpy(prefix_sum, count, n_bins_y * n_bins_x * sizeof(int));
-//	memset(count, 0, n_bins_y * n_bins_x * sizeof(int));
-//
-//	// Prefix sum to find the initial index of each bin
-//	for (int n = 1; n < n_bins_x * n_bins_y; n *= 2)
-//	{
-//		for (int i = 0; i < n_bins_x * n_bins_y - n; i++)
-//			temp[i] = prefix_sum[i];
-//
-//		for (int i = n; i < n_bins_x * n_bins_y; i++)
-//			prefix_sum[i] += temp[i - n];
-//	}
-//
-//	// Distribute the elements to the bins
-//	for (int i = 0; i < spec->main_vector.size; i++)
-//		if (!spec->main_vector.part[i].safe_to_delete)
-//		{
-//			ix = spec->main_vector.part[i].ix / bin_size;
-//			iy = spec->main_vector.part[i].iy / bin_size;
-//			idx = count[ix + iy * n_bins_x];
-//			count[ix + iy * n_bins_x]++;
-//
-//			bins[ix + iy * n_bins_x][idx] = spec->main_vector.part[i];
-//		}
-//
-//	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-//		for (int k = 0; k < count[i]; k++)
-//			spec->main_vector.part[prefix_sum[i] + k - count[i]] = bins[i][k];
-//
-//	spec->main_vector.size = prefix_sum[n_bins_x * n_bins_y - 1];
-//
-//	// Cleaning
-//	for (int i = 0; i < n_bins_x * n_bins_y; i++)
-//		free(bins[i]);
-//
-//	free(bins);
-//	free(prefix_sum);
-//	free(count);
-//	free(temp);
-//}
-
 /*********************************************************************************************
  Particle advance
  *********************************************************************************************/
-// EM fields interpolation (CPU)
-void interpolate_fld(const t_vfld *restrict const E, const t_vfld *restrict const B, const int nrow,
-		const t_part *restrict const part, t_vfld *restrict const Ep, t_vfld *restrict const Bp, const int offset)
+void interpolate_fld(const t_vfld *restrict const E, const t_vfld *restrict const B,
+		const int nrow, const int ix, const int iy, const t_fld x, const t_fld y,
+		t_vfld *restrict const Ep, t_vfld *restrict const Bp)
 {
-	register int i, j, ih, jh;
-	register t_fld w1, w2, w1h, w2h;
+	const int ih = ix + ((x < 0.5f) ? -1 : 0);
+	const int jh = iy + ((y < 0.5f) ? -1 : 0);
 
-	i = part->ix;
-	j = part->iy - offset;
+	const t_fld w1h = x + ((x < 0.5f) ? 0.5f : -0.5f);
+	const t_fld w2h = y + ((y < 0.5f) ? 0.5f : -0.5f);
 
-	w1 = part->x;
-	w2 = part->y;
+	Ep->x = (E[ih + iy * nrow].x * (1.0f - w1h) + E[ih + 1 + iy * nrow].x * w1h) * (1.0f - y)
+			+ (E[ih + (iy + 1) * nrow].x * (1.0f - w1h) + E[ih + 1 + (iy + 1) * nrow].x * w1h) * y;
+	Ep->y = (E[ix + jh * nrow].y * (1.0f - x) + E[ix + 1 + jh * nrow].y * x) * (1.0f - w2h)
+			+ (E[ix + (jh + 1) * nrow].y * (1.0f - x) + E[ix + 1 + (jh + 1) * nrow].y * x) * w2h;
+	Ep->z = (E[ix + iy * nrow].z * (1.0f - x) + E[ix + 1 + iy * nrow].z * x) * (1.0f - y)
+			+ (E[ix + (iy + 1) * nrow].z * (1.0f - x) + E[ix + 1 + (iy + 1) * nrow].z * x) * y;
 
-	ih = (w1 < 0.5f) ? -1 : 0;
-	jh = (w2 < 0.5f) ? -1 : 0;
-
-	// w1h = w1 - 0.5f - ih;
-	// w2h = w2 - 0.5f - jh;
-	w1h = w1 + ((w1 < 0.5f) ? 0.5f : -0.5f);
-	w2h = w2 + ((w2 < 0.5f) ? 0.5f : -0.5f);
-
-	ih += i;
-	jh += j;
-
-	Ep->x = (E[ih + j * nrow].x * (1.0f - w1h) + E[ih + 1 + j * nrow].x * w1h) * (1.0f - w2)
-			+ (E[ih + (j + 1) * nrow].x * (1.0f - w1h) + E[ih + 1 + (j + 1) * nrow].x * w1h) * w2;
-	Ep->y = (E[i + jh * nrow].y * (1.0f - w1) + E[i + 1 + jh * nrow].y * w1) * (1.0f - w2h)
-			+ (E[i + (jh + 1) * nrow].y * (1.0f - w1) + E[i + 1 + (jh + 1) * nrow].y * w1) * w2h;
-	Ep->z = (E[i + j * nrow].z * (1.0f - w1) + E[i + 1 + j * nrow].z * w1) * (1.0f - w2)
-			+ (E[i + (j + 1) * nrow].z * (1.0f - w1) + E[i + 1 + (j + 1) * nrow].z * w1) * w2;
-
-	Bp->x = (B[i + jh * nrow].x * (1.0f - w1) + B[i + 1 + jh * nrow].x * w1) * (1.0f - w2h)
-			+ (B[i + (jh + 1) * nrow].x * (1.0f - w1) + B[i + 1 + (jh + 1) * nrow].x * w1) * w2h;
-	Bp->y = (B[ih + j * nrow].y * (1.0f - w1h) + B[ih + 1 + j * nrow].y * w1h) * (1.0f - w2)
-			+ (B[ih + (j + 1) * nrow].y * (1.0f - w1h) + B[ih + 1 + (j + 1) * nrow].y * w1h) * w2;
+	Bp->x = (B[ix + jh * nrow].x * (1.0f - x) + B[ix + 1 + jh * nrow].x * x) * (1.0f - w2h)
+			+ (B[ix + (jh + 1) * nrow].x * (1.0f - x) + B[ix + 1 + (jh + 1) * nrow].x * x) * w2h;
+	Bp->y = (B[ih + iy * nrow].y * (1.0f - w1h) + B[ih + 1 + iy * nrow].y * w1h) * (1.0f - y)
+			+ (B[ih + (iy + 1) * nrow].y * (1.0f - w1h) + B[ih + 1 + (iy + 1) * nrow].y * w1h) * y;
 	Bp->z = (B[ih + jh * nrow].z * (1.0f - w1h) + B[ih + 1 + jh * nrow].z * w1h) * (1.0f - w2h)
 			+ (B[ih + (jh + 1) * nrow].z * (1.0f - w1h) + B[ih + 1 + (jh + 1) * nrow].z * w1h)
 					* w2h;
-
-}
-
-int ltrim(t_part_data x)
-{
-	return (x >= 1.0f) - (x < 0.0f);
 }
 
 // Particle advance~(CPU)
@@ -1021,15 +715,13 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 	qnx = spec->q * spec->dx[0] / spec->dt;
 	qny = spec->q * spec->dx[1] / spec->dt;
 
-	spec->energy = 0;
-
 	// Advance internal iteration number
 	spec->iter += 1;
 
 	// Advance particles
 	for (i = 0; i < spec->main_vector.size; i++)
 	{
-		if(spec->main_vector.part[i].safe_to_delete) continue;
+		if(spec->main_vector.invalid[i]) continue;
 
 		t_vfld Ep, Bp;
 		t_part_data utx, uty, utz;
@@ -1042,13 +734,14 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 		float dx, dy;
 
 		// Load particle momenta
-		ux = spec->main_vector.part[i].ux;
-		uy = spec->main_vector.part[i].uy;
-		uz = spec->main_vector.part[i].uz;
+		ux = spec->main_vector.ux[i];
+		uy = spec->main_vector.uy[i];
+		uz = spec->main_vector.uz[i];
 
 		// Interpolate fields
-		interpolate_fld(emf->E, emf->B, emf->nrow, &spec->main_vector.part[i], &Ep, &Bp, limits_y[0]);
-
+		interpolate_fld(emf->E, emf->B, emf->nrow, spec->main_vector.ix[i],
+								spec->main_vector.iy[i] - limits_y[0], spec->main_vector.x[i],
+								spec->main_vector.y[i], &Ep, &Bp);
 		// Advance u using Boris scheme
 		Ep.x *= tem;
 		Ep.y *= tem;
@@ -1087,9 +780,9 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 		uz = utz + Ep.z;
 
 		// Store new momenta
-		spec->main_vector.part[i].ux = ux;
-		spec->main_vector.part[i].uy = uy;
-		spec->main_vector.part[i].uz = uz;
+		spec->main_vector.ux[i] = ux;
+		spec->main_vector.uy[i] = uy;
+		spec->main_vector.uz[i] = uz;
 
 		// push particle
 		rg = 1.0f / sqrtf(1.0f + ux * ux + uy * uy + uz * uz);
@@ -1097,26 +790,26 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 		dx = dt_dx * rg * ux;
 		dy = dt_dy * rg * uy;
 
-		x1 = spec->main_vector.part[i].x + dx;
-		y1 = spec->main_vector.part[i].y + dy;
+		x1 = spec->main_vector.x[i] + dx;
+		y1 = spec->main_vector.y[i] + dy;
 
-		di = ltrim(x1);
-		dj = ltrim(y1);
+		di = LTRIM(x1);
+		dj = LTRIM(y1);
 
 		x1 -= di;
 		y1 -= dj;
 
 		qvz = spec->q * uz * rg;
 
-		dep_current_zamb(spec->main_vector.part[i].ix, spec->main_vector.part[i].iy - limits_y[0],
-				di, dj, spec->main_vector.part[i].x, spec->main_vector.part[i].y, dx, dy, qnx, qny,
+		dep_current_zamb(spec->main_vector.ix[i], spec->main_vector.iy[i] - limits_y[0],
+				di, dj, spec->main_vector.x[i], spec->main_vector.y[i], dx, dy, qnx, qny,
 				qvz, current);
 
 		// Store results
-		spec->main_vector.part[i].x = x1;
-		spec->main_vector.part[i].y = y1;
-		spec->main_vector.part[i].ix += di;
-		spec->main_vector.part[i].iy += dj;
+		spec->main_vector.x[i] = x1;
+		spec->main_vector.y[i] = y1;
+		spec->main_vector.ix[i] += di;
+		spec->main_vector.iy[i] += dj;
 	}
 }
 
@@ -1131,39 +824,41 @@ void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *low
 	for(int i = 0; i < spec->main_vector.size; i++)
 	{
 		//Check if the particle is in the correct region
-		int iy = spec->main_vector.part[i].iy;
+		int iy = spec->main_vector.iy[i];
 
 		// First shift particle left (if applicable), then check for particles leaving the box
 		if (spec->moving_window)
 		{
 			if ((spec->iter * spec->dt) > (spec->dx[0] * (spec->n_move + 1)))
-				spec->main_vector.part[i].ix--;
+				spec->main_vector.ix[i]--;
 
-			if ((spec->main_vector.part[i].ix < 0) || (spec->main_vector.part[i].ix >= nx0))
+			if ((spec->main_vector.ix[i] < 0) || (spec->main_vector.ix[i] >= nx0))
 			{
-				spec->main_vector.part[i].safe_to_delete = true;
+				spec->main_vector.invalid[i] = true;
 				continue;
 			}
 		} else
 		{
 			//Periodic boundaries for both axis
-			if (spec->main_vector.part[i].ix < 0) spec->main_vector.part[i].ix += nx0;
-			else if (spec->main_vector.part[i].ix >= nx0) spec->main_vector.part[i].ix -= nx0;
+			if (spec->main_vector.ix[i] < 0) spec->main_vector.ix[i] += nx0;
+			else if (spec->main_vector.ix[i] >= nx0) spec->main_vector.ix[i] -= nx0;
 		}
 
-		if (spec->main_vector.part[i].iy < 0) spec->main_vector.part[i].iy += nx1;
-		else if (spec->main_vector.part[i].iy >= nx1) spec->main_vector.part[i].iy -= nx1;
+		if (spec->main_vector.iy[i] < 0) spec->main_vector.iy[i] += nx1;
+		else if (spec->main_vector.iy[i] >= nx1) spec->main_vector.iy[i] -= nx1;
 
 		//Verify if the particle is still in the correct region. If not send the particle to the correct one
 		if (iy < limits_y[0])
 		{
-			spec_add_to_vector(&lower_spec->temp_buffer[1], spec->main_vector.part[i]);
-			spec->main_vector.part[i].safe_to_delete = true; // Mark the particle as invalid
+			part_vector_assign_valid_part(&spec->main_vector, i, &lower_spec->incoming_part[1], lower_spec->incoming_part[1].size);
+			lower_spec->incoming_part[1].size++;
+			spec->main_vector.invalid[i] = true; // Mark the particle as invalid
 
 		} else if (iy >= limits_y[1])
 		{
-			spec_add_to_vector(&upper_spec->temp_buffer[0], spec->main_vector.part[i]);
-			spec->main_vector.part[i].safe_to_delete = true; // Mark the particle as invalid
+			part_vector_assign_valid_part(&spec->main_vector, i, &upper_spec->incoming_part[0], upper_spec->incoming_part[0].size);
+			upper_spec->incoming_part[0].size++;
+			spec->main_vector.invalid[i] = true; // Mark the particle as invalid
 		}
 	}
 
@@ -1192,43 +887,22 @@ void spec_deposit_charge(const t_species *spec, t_part_data *charge)
 	int nrow = spec->nx[0] + 1;
 	t_part_data q = spec->q;
 
-	switch (spec->main_vector.type)
+	for (i = 0; i < spec->main_vector.size; i++)
 	{
-		case AoS:
-			for (i = 0; i < spec->main_vector.size; i++)
-			{
-				if(spec->main_vector.part[i].safe_to_delete) continue;
+		if (spec->main_vector.invalid[i]) continue;
 
-				int idx = spec->main_vector.part[i].ix + nrow * spec->main_vector.part[i].iy;
-				t_fld w1, w2;
+		int idx = spec->main_vector.ix[i] + nrow * spec->main_vector.iy[i];
+		t_fld w1, w2;
 
-				w1 = spec->main_vector.part[i].x;
-				w2 = spec->main_vector.part[i].y;
+		w1 = spec->main_vector.x[i];
+		w2 = spec->main_vector.y[i];
 
-				charge[idx] += (1.0f - w1) * (1.0f - w2) * q;
-				charge[idx + 1] += (w1) * (1.0f - w2) * q;
-				charge[idx + nrow] += (1.0f - w1) * (w2) * q;
-				charge[idx + 1 + nrow] += (w1) * (w2) * q;
-			}
-			break;
-		case SoA:
-			for (i = 0; i < spec->main_vector.size; i++)
-			{
-				if(spec->main_vector.safe_to_delete[i]) continue;
-
-				int idx = spec->main_vector.ix[i] + nrow * spec->main_vector.iy[i];
-				t_fld w1, w2;
-
-				w1 = spec->main_vector.x[i];
-				w2 = spec->main_vector.y[i];
-
-				charge[idx] += (1.0f - w1) * (1.0f - w2) * q;
-				charge[idx + 1] += (w1) * (1.0f - w2) * q;
-				charge[idx + nrow] += (1.0f - w1) * (w2) * q;
-				charge[idx + 1 + nrow] += (w1) * (w2) * q;
-			}
-			break;
+		charge[idx] += (1.0f - w1) * (1.0f - w2) * q;
+		charge[idx + 1] += (w1) * (1.0f - w2) * q;
+		charge[idx + nrow] += (1.0f - w1) * (w2) * q;
+		charge[idx + 1 + nrow] += (w1) * (w2) * q;
 	}
+
 }
 
 /*********************************************************************************************
@@ -1287,60 +961,30 @@ void spec_pha_axis(const t_species *spec, int i0, int np, int quant, float *axis
 {
 	int i;
 
-	if(spec->main_vector.type == AoS)
+	switch (quant)
 	{
-		switch (quant)
-		{
-			case X1:
-				for (i = 0; i < np; i++)
-					axis[i] = (spec->main_vector.part[i0 + i].x + spec->main_vector.part[i0 + i].ix)
-							* spec->dx[0];
-				break;
-			case X2:
-				for (i = 0; i < np; i++)
-					axis[i] = (spec->main_vector.part[i0 + i].y + spec->main_vector.part[i0 + i].iy)
-							* spec->dx[1];
-				break;
-			case U1:
-				for (i = 0; i < np; i++)
-					axis[i] = spec->main_vector.part[i0 + i].ux;
-				break;
-			case U2:
-				for (i = 0; i < np; i++)
-					axis[i] = spec->main_vector.part[i0 + i].uy;
-				break;
-			case U3:
-				for (i = 0; i < np; i++)
-					axis[i] = spec->main_vector.part[i0 + i].uz;
-				break;
-		}
-	}else if(spec->main_vector.type == SoA)
-	{
-		switch (quant)
-		{
-			case X1:
-				for (i = 0; i < np; i++)
-					axis[i] = (spec->main_vector.x[i0 + i] + spec->main_vector.ix[i0 + i])
-							* spec->dx[0];
-				break;
-			case X2:
-				for (i = 0; i < np; i++)
-					axis[i] = (spec->main_vector.y[i0 + i] + spec->main_vector.iy[i0 + i])
-							* spec->dx[1];
-				break;
-			case U1:
-				for (i = 0; i < np; i++)
-					axis[i] = spec->main_vector.ux[i0 + i];
-				break;
-			case U2:
-				for (i = 0; i < np; i++)
-					axis[i] = spec->main_vector.uy[i0 + i];
-				break;
-			case U3:
-				for (i = 0; i < np; i++)
-					axis[i] = spec->main_vector.uz[i0 + i];
-				break;
-		}
+		case X1:
+			for (i = 0; i < np; i++)
+				axis[i] = (spec->main_vector.x[i0 + i] + spec->main_vector.ix[i0 + i])
+						* spec->dx[0];
+			break;
+		case X2:
+			for (i = 0; i < np; i++)
+				axis[i] = (spec->main_vector.y[i0 + i] + spec->main_vector.iy[i0 + i])
+						* spec->dx[1];
+			break;
+		case U1:
+			for (i = 0; i < np; i++)
+				axis[i] = spec->main_vector.ux[i0 + i];
+			break;
+		case U2:
+			for (i = 0; i < np; i++)
+				axis[i] = spec->main_vector.uy[i0 + i];
+			break;
+		case U3:
+			for (i = 0; i < np; i++)
+				axis[i] = spec->main_vector.uz[i0 + i];
+			break;
 	}
 }
 
@@ -1473,23 +1117,12 @@ void spec_calculate_energy(t_species *spec)
 {
 	spec->energy = 0;
 
-	if(spec->main_vector.type == AoS)
+	for (int i = 0; i < spec->main_vector.size; i++)
 	{
-		for (int i = 0; i < spec->main_vector.size; i++)
-		{
-			t_part_data usq = spec->main_vector.part[i].ux * spec->main_vector.part[i].ux + spec->main_vector.part[i].uy * spec->main_vector.part[i].uy
-					+ spec->main_vector.part[i].uz * spec->main_vector.part[i].uz;
-			t_part_data gamma = sqrtf(1 + usq);
-			spec->energy += usq / (gamma + 1.0);
-		}
-	}else if(spec->main_vector.type == SoA)
-	{
-		for (int i = 0; i < spec->main_vector.size; i++)
-		{
-			t_part_data usq = spec->main_vector.ux[i] * spec->main_vector.ux[i] + spec->main_vector.uy[i] * spec->main_vector.uy[i]
-					+ spec->main_vector.uz[i] * spec->main_vector.uz[i];
-			t_part_data gamma = sqrtf(1 + usq);
-			spec->energy += usq / (gamma + 1.0);
-		}
+		t_part_data usq = spec->main_vector.ux[i] * spec->main_vector.ux[i]
+				+ spec->main_vector.uy[i] * spec->main_vector.uy[i]
+				+ spec->main_vector.uz[i] * spec->main_vector.uz[i];
+		t_part_data gamma = sqrtf(1 + usq);
+		spec->energy += usq / (gamma + 1.0);
 	}
 }
