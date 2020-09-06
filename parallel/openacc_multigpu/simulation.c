@@ -66,10 +66,20 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	sim->box[1] = box[1];
 	strncpy(sim->name, name, 64);
 
+	// Check time step
+	float dx[] = { box[0] / nx[0], box[1] / nx[1] };
+	float cour = sqrtf(1.0f / (1.0f / (dx[0] * dx[0]) + 1.0f / (dx[1] * dx[1])));
+	if (dt >= cour)
+	{
+		fprintf(stderr, "Invalid timestep, courant condition violation, dtmax = %f \n", cour);
+		exit(-1);
+	}
+
 	// Inject particles in the simulation that will be distributed to all the regions
 	const int range[][2] = { { 0, nx[0] }, { 0, nx[1] } };
 	for (int n = 0; n < n_species; ++n)
-		spec_inject_particles(&species[n], range);
+		spec_inject_particles(&species[n].main_vector, range, species[n].ppc, &species[n].density,
+				species[n].dx, species[n].n_move, species[n].ufl, species[n].uth);
 
 	// Initialise the regions
 	sim->n_regions = n_regions;
@@ -88,15 +98,6 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	// Cleaning
 	for (int n = 0; n < n_species; ++n)
 		spec_delete(&species[n]);
-
-	// Check time step
-	float dx[] = { box[0] / nx[0], box[1] / nx[1] };
-	float cour = sqrtf(1.0f / (1.0f / (dx[0] * dx[0]) + 1.0f / (dx[1] * dx[1])));
-	if (dt >= cour)
-	{
-		fprintf(stderr, "Invalid timestep, courant condition violation, dtmax = %f \n", cour);
-		exit(-1);
-	}
 
 	sim_create_dir(sim);
 
@@ -380,6 +381,13 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 	fprintf(stdout, "Number of regions (Total): %d\n", sim->n_regions);
 	fprintf(stdout, "Number of GPUs: %d\n", acc_get_num_devices(DEVICE_TYPE));
 	fprintf(stdout, "Sort - Bin size: %d\n", TILE_SIZE);
+
+#ifdef ENABLE_PREFETCH
+	fprintf(stdout, "Prefetch: Enable\n");
+#else
+	fprintf(stdout, "Prefetch: Disable\n");
+#endif
+
 //	fprintf(stdout, "Time for spec. advance = %f s\n", spec_time() / n_threads);
 //	fprintf(stdout, "Time for emf   advance = %f s\n", emf_time() / n_threads);
 	fprintf(stdout, "Total simulation time  = %f s\n", timer_interval_seconds(t0, t1));

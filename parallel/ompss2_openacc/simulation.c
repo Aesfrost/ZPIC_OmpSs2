@@ -82,7 +82,8 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	// Inject particles in the simulation that will be distributed to all the regions
 	const int range[][2] = { { 0, nx[0] }, { 0, nx[1] } };
 	for (int n = 0; n < n_species; ++n)
-		spec_inject_particles(&species[n], range);
+		spec_inject_particles(&species[n].main_vector, range, species[n].ppc, &species[n].density,
+				species[n].dx, species[n].n_move, species[n].ufl, species[n].uth);
 
 	// Initialise the regions (recursively)
 	sim->first_region = malloc(sizeof(t_region));
@@ -410,6 +411,13 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 	fprintf(stdout, "Number of regions (GPU): %d (effective: %d regions)\n", gpu_regions,
 			get_gpu_regions_effective());
 	fprintf(stdout, "Number of threads: %d\n", n_threads);
+
+#ifdef ENABLE_PREFETCH
+	fprintf(stdout, "Prefetch: Enable\n");
+#else
+	fprintf(stdout, "Prefetch: Disable\n");
+#endif
+
 	fprintf(stdout, "Sort - Bin size: %d\n", TILE_SIZE);
 //	fprintf(stdout, "Time for spec. advance = %f s\n", spec_time() / n_threads);
 //	fprintf(stdout, "Time for emf   advance = %f s\n", emf_time() / n_threads);

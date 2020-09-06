@@ -59,9 +59,9 @@ void part_vector_alloc(t_particle_vector *vector, const int size_max)
 	 vector->uz = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
 	 vector->invalid = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(bool));
 
-	 vector->tile_offset = NULL;
 	 vector->size_max = size_max;
 	 vector->size = 0;
+	 vector->enable_vector = true;
 }
 
 void part_vector_free(t_particle_vector *vector)
@@ -74,8 +74,6 @@ void part_vector_free(t_particle_vector *vector)
 	 free_align_buffer(vector->uy);
 	 free_align_buffer(vector->uz);
 	 free_align_buffer(vector->invalid);
-
-	 if (vector->tile_offset) free(vector->tile_offset);
 }
 
 void part_vector_realloc(t_particle_vector *vector, const int new_size)
@@ -144,28 +142,28 @@ void spec_update_main_vector(t_species *spec)
 	if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
 		part_vector_realloc(&spec->main_vector, ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024);
 
-	//Loop through all the 2 temp buffers
-	for (k = 0; k < 2; k++)
+	//Loop through all the 3 temporary buffers
+	for (k = 0; k < 3; k++)
 	{
-		int size_temp = spec->incoming_part[k].size;
-
-		//Loop through all elements on the buffer, copying to the main_vector particle buffer (if applicable)
-		for (j = 0; j < size_temp; j++)
+		if(spec->incoming_part[k].enable_vector)
 		{
-			while (i < size && !spec->main_vector.invalid[i])
-				i++;   //Checks if a particle can be safely deleted
-			if (i < size)
+			int size_temp = spec->incoming_part[k].size;
+
+			//Loop through all elements on the buffer, copying to the main_vector particle buffer (if applicable)
+			for (j = 0; j < size_temp; j++)
 			{
-				part_vector_assign_valid_part(&spec->incoming_part[k], j, &spec->main_vector, i);
-				i++;
-			} else
-			{
-				part_vector_assign_valid_part(&spec->incoming_part[k], j, &spec->main_vector,
-												spec->main_vector.size);
-				spec->main_vector.size++;
+				while (i < size && !spec->main_vector.invalid[i]) i++;   //Checks if a particle can be safely deleted
+				if (i < size)
+				{
+					part_vector_assign_valid_part(&spec->incoming_part[k], j, &spec->main_vector, i);
+					i++;
+				} else
+				{
+					part_vector_assign_valid_part(&spec->incoming_part[k], j, &spec->main_vector, spec->main_vector.size);
+					spec->main_vector.size++;
+				}
 			}
 		}
-
 	}
 
 	if (i < size)
@@ -182,7 +180,7 @@ void spec_update_main_vector(t_species *spec)
 	}
 
 	//Clean the temp buffer
-	for (k = 0; k < 2; k++)
+	for (k = 0; k < 3; k++)
 		spec->incoming_part[k].size = 0;
 }
 
@@ -190,39 +188,36 @@ void spec_update_main_vector(t_species *spec)
  Initialization
  *********************************************************************************************/
 
-/**
- * Sets the momentum of the range of particles supplieds using a thermal distribution
- * @param spec  Particle species
- * @param start Index of the first particle to set the momentum
- * @param end   Index of the last particle to set the momentum
- */
-void spec_set_u(t_species *spec, const int start, const int end)
+// Set the momentum of the injected particles
+void spec_set_u(t_particle_vector *vector, const int start, const int end, const t_part_data ufl[3],
+		const t_part_data uth[3])
 {
-	for (int i = start; i <= end; i++)
+	for (int i = start; i < end; i++)
 	{
-		spec->main_vector.ux[i] = spec->ufl[0] + spec->uth[0] * rand_norm();
-		spec->main_vector.uy[i] = spec->ufl[1] + spec->uth[1] * rand_norm();
-		spec->main_vector.uz[i] = spec->ufl[2] + spec->uth[2] * rand_norm();
+		vector->ux[i] = ufl[0] + uth[0] * rand_norm();
+		vector->uy[i] = ufl[1] + uth[1] * rand_norm();
+		vector->uz[i] = ufl[2] + uth[2] * rand_norm();
 	}
 }
 
-void spec_set_x(t_species *spec, const int range[][2])
+// Set the position of the injected particles
+void spec_set_x(t_particle_vector *vector, const int range[][2], const int ppc[2],
+		const t_density *part_density, const t_part_data dx[2], const int n_move)
 {
-	int i, j, k, ip;
-
 	float *poscell;
-	float start, end;
+	int start, end;
 
 	// Calculate particle positions inside the cell
-	const int npc = spec->ppc[0] * spec->ppc[1];
-	t_part_data const dpcx = 1.0f / spec->ppc[0];
-	t_part_data const dpcy = 1.0f / spec->ppc[1];
+	const int npc = ppc[0] * ppc[1];
+	t_part_data const dpcx = 1.0f / ppc[0];
+	t_part_data const dpcy = 1.0f / ppc[1];
 
 	poscell = malloc(2 * npc * sizeof(t_part_data));
-	ip = 0;
-	for (j = 0; j < spec->ppc[1]; j++)
+
+	int ip = 0;
+	for (int j = 0; j < ppc[1]; j++)
 	{
-		for (i = 0; i < spec->ppc[0]; i++)
+		for (int i = 0; i < ppc[0]; i++)
 		{
 			poscell[ip] = dpcx * (i + 0.5);
 			poscell[ip + 1] = dpcy * (j + 0.5);
@@ -230,101 +225,75 @@ void spec_set_x(t_species *spec, const int range[][2])
 		}
 	}
 
-	ip = spec->main_vector.size;
-
 	// Set position of particles in the specified grid range according to the density profile
-	switch (spec->density.type)
+	switch (part_density->type)
 	{
 		case STEP:    // Step like density profile
 
 			// Get edge position normalized to cell size;
-			start = spec->density.start / spec->dx[0] - spec->n_move;
+			start = part_density->start / dx[0] - n_move;
+			if(range[0][0] > start) start = range[0][0];
 
-			for (j = range[1][0]; j < range[1][1]; j++)
-			{
-				for (i = range[0][0]; i < range[0][1]; i++)
-				{
-					for (k = 0; k < npc; k++)
-					{
-						if (i + poscell[2 * k] > start)
-						{
-							spec->main_vector.ix[ip] = i;
-							spec->main_vector.iy[ip] = j;
-							spec->main_vector.x[ip] = poscell[2 * k];
-							spec->main_vector.y[ip] = poscell[2 * k + 1];
-							spec->main_vector.invalid[ip] = false;
-							ip++;
-						}
-					}
-				}
-			}
+			end = range[0][1];
 			break;
 
 		case SLAB:    // Slab like density profile
-
 			// Get edge position normalized to cell size;
-			start = spec->density.start / spec->dx[0] - spec->n_move;
-			end = spec->density.end / spec->dx[0] - spec->n_move;
+			start = part_density->start / dx[0] - n_move;
+			end = part_density->end / dx[0] - n_move;
 
-			for (j = range[1][0]; j < range[1][1]; j++)
-			{
-				for (i = range[0][0]; i < range[0][1]; i++)
-				{
-					for (k = 0; k < npc; k++)
-					{
-						if (i + poscell[2 * k] > start && i + poscell[2 * k] < end)
-						{
-							spec->main_vector.ix[ip] = i;
-							spec->main_vector.iy[ip] = j;
-							spec->main_vector.x[ip] = poscell[2 * k];
-							spec->main_vector.y[ip] = poscell[2 * k + 1];
-							spec->main_vector.invalid[ip] = false;
-							ip++;
-						}
-					}
-				}
-			}
+			if(start < range[0][0]) start = range[0][0];
+			if(end > range[0][1]) end = range[0][1];
 			break;
 
 		default:    // Uniform density
-			for (j = range[1][0]; j < range[1][1]; j++)
-			{
-				for (i = range[0][0]; i < range[0][1]; i++)
-				{
-					for (k = 0; k < npc; k++)
-					{
-						spec->main_vector.ix[ip] = i;
-						spec->main_vector.iy[ip] = j;
-						spec->main_vector.x[ip] = poscell[2 * k];
-						spec->main_vector.y[ip] = poscell[2 * k + 1];
-						spec->main_vector.invalid[ip] = false;
-						ip++;
-					}
-				}
-			}
+			start = range[0][0];
+			end = range[0][1];
+
 	}
 
-	spec->main_vector.size = ip;
+	ip = vector->size;
+
+	for (int j = range[1][0]; j < range[1][1]; j++)
+	{
+		for (int i = start; i < end; i++)
+		{
+			for (int k = 0; k < npc; k++)
+			{
+				vector->ix[ip] = i;
+				vector->iy[ip] = j;
+				vector->x[ip] = poscell[2 * k];
+				vector->y[ip] = poscell[2 * k + 1];
+				vector->invalid[ip] = false;
+				ip++;
+			}
+		}
+	}
+
+	vector->size = ip;
+
 	free(poscell);
 }
 
 // Inject the particles in the simulation
-void spec_inject_particles(t_species *spec, const int range[][2])
+void spec_inject_particles(t_particle_vector *part_vector, const int range[][2], const int ppc[2],
+		const t_density *part_density, const t_part_data dx[2], const int n_move,
+		const t_part_data ufl[3], const t_part_data uth[3])
 {
-	int start = spec->main_vector.size;
+	int start = part_vector->size;
 
 	// Get maximum number of particles to inject
-	int np_inj = (range[0][1] - range[0][0]) * (range[1][1] - range[1][0]) * spec->ppc[0] * spec->ppc[1];
+	int np_inj = (range[0][1] - range[0][0]) * (range[1][1] - range[1][0]) * ppc[0] * ppc[1];
 
 	// Check if buffer is large enough and if not reallocate
-	if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
-		part_vector_realloc(&spec->main_vector, ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024);
+	if (start + np_inj > part_vector->size_max)
+		part_vector_realloc(part_vector, ((part_vector->size_max + np_inj) / 1024 + 1) * 1024);
 
 	// Set particle positions
-	spec_set_x(spec, range);
+	spec_set_x(part_vector, range, ppc, part_density, dx, n_move);
 
 	// Set momentum of injected particles
-	spec_set_u(spec, start, spec->main_vector.size - 1);
+	spec_set_u(part_vector, start, part_vector->size, ufl, uth);
 }
 
 // Constructor
@@ -361,6 +330,8 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	// Initialize temp buffer
 	for (i = 0; i < 2; i++)
 		part_vector_alloc(&spec->incoming_part[i], (npc * nx[0] / 1024 + 1) * 1024);
+
+	spec->incoming_part[2].enable_vector = false;
 
 	// Initialize density profile
 	if (density)
@@ -407,14 +378,20 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	// Sort
 	spec->n_tiles_x = ceil((float) spec->nx[0] / TILE_SIZE);
 	spec->n_tiles_y = ceil((float) region_size / TILE_SIZE);
+	spec->tile_offset = NULL;
+	spec->mv_part_offset = NULL;
 }
 
 void spec_delete(t_species *spec)
 {
 	part_vector_free(&spec->main_vector);
 
-	for(int n = 0; n < 2; n++)
-		part_vector_free(&spec->incoming_part[n]);
+	if (spec->tile_offset) free(spec->tile_offset);
+	if(spec->mv_part_offset) free(spec->mv_part_offset);
+
+	for(int n = 0; n < 3; n++)
+		if(spec->incoming_part[n].enable_vector)
+			part_vector_free(&spec->incoming_part[n]);
 }
 
 /*********************************************************************************************
@@ -701,7 +678,7 @@ void interpolate_fld(const t_vfld *restrict const E, const t_vfld *restrict cons
 					* w2h;
 }
 
-// Particle advance~(CPU)
+// Particle advance (CPU)
 void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[2])
 {
 	int i;
@@ -740,8 +717,9 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 
 		// Interpolate fields
 		interpolate_fld(emf->E, emf->B, emf->nrow, spec->main_vector.ix[i],
-								spec->main_vector.iy[i] - limits_y[0], spec->main_vector.x[i],
-								spec->main_vector.y[i], &Ep, &Bp);
+				spec->main_vector.iy[i] - limits_y[0], spec->main_vector.x[i],
+				spec->main_vector.y[i], &Ep, &Bp);
+
 		// Advance u using Boris scheme
 		Ep.x *= tem;
 		Ep.y *= tem;
@@ -765,7 +743,6 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 		uz = utz + utx * Bp.y - uty * Bp.x;
 
 		// Perform second half of the rotation
-
 		Bp.x *= otsq;
 		Bp.y *= otsq;
 		Bp.z *= otsq;
@@ -815,8 +792,7 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[
 
 // Particle post processing (Transfer particles between regions and move the simulation
 // window, if applicable). CPU Task
-void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *lower_spec,
-		int limits_y[2])
+void spec_post_processing(t_species *spec, const int limits_y[2])
 {
 	const int nx0 = spec->nx[0];
 	const int nx1 = spec->nx[1];
@@ -850,14 +826,14 @@ void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *low
 		//Verify if the particle is still in the correct region. If not send the particle to the correct one
 		if (iy < limits_y[0])
 		{
-			part_vector_assign_valid_part(&spec->main_vector, i, &lower_spec->incoming_part[1], lower_spec->incoming_part[1].size);
-			lower_spec->incoming_part[1].size++;
+			part_vector_assign_valid_part(&spec->main_vector, i, spec->outgoing_part[0], spec->outgoing_part[0]->size);
+			spec->outgoing_part[0]->size++;
 			spec->main_vector.invalid[i] = true; // Mark the particle as invalid
 
 		} else if (iy >= limits_y[1])
 		{
-			part_vector_assign_valid_part(&spec->main_vector, i, &upper_spec->incoming_part[0], upper_spec->incoming_part[0].size);
-			upper_spec->incoming_part[0].size++;
+			part_vector_assign_valid_part(&spec->main_vector, i, spec->outgoing_part[1], spec->outgoing_part[1]->size);
+			spec->outgoing_part[1]->size++;
 			spec->main_vector.invalid[i] = true; // Mark the particle as invalid
 		}
 	}
@@ -869,10 +845,16 @@ void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *low
 
 		// Inject particles in the right edge of the simulation box
 		const int range[][2] = {{spec->nx[0] - 1, spec->nx[0]}, {limits_y[0], limits_y[1]}};
-		spec_inject_particles(spec, range);
-	}
+		int np_inj = (range[0][1] - range[0][0]) * (range[1][1] - range[1][0]) * spec->ppc[0] * spec->ppc[1];
 
-	//if(spec->iter % 20 == 0) spec_sort(spec, 4);
+		// If needed, add the incoming particles to a temporary vector
+		if(!spec->incoming_part[2].enable_vector)
+		{
+			part_vector_alloc(&spec->incoming_part[2], np_inj);
+			spec_inject_particles(&spec->incoming_part[2], range, spec->ppc, &spec->density,
+					spec->dx, spec->n_move, spec->ufl, spec->uth);
+		}else spec->incoming_part[2].size = np_inj; // Reuse the temporary vector (THIS ONLY WORKS IF THE INJECTED PARTICLES HAVE NO MOMENTUM)
+	}
 }
 
 /*********************************************************************************************

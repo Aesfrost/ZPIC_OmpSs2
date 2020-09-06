@@ -104,8 +104,8 @@ void emf_update_gc_y(t_emf *emf);
 void emf_update_gc_x(t_emf *emf);
 
 // OpenAcc Tasks
-void emf_advance_openacc(t_emf *emf, const t_current *current);
-void emf_update_gc_y_openacc(t_emf *emf);
+void emf_advance_openacc(t_emf *emf, const t_current *current, const int device);
+void emf_update_gc_y_openacc(t_emf *emf, const int device);
 
 // Prefetch
 #ifdef ENABLE_PREFETCH

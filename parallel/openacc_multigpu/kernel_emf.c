@@ -14,6 +14,8 @@
 #include <string.h>
 
 #ifdef ENABLE_PREFETCH
+#include <cuda.h>
+
 void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
 {
 	cudaMemPrefetchAsync(buf, size * sizeof(t_vfld), device, NULL);
@@ -119,7 +121,7 @@ void emf_gc_x_openacc(t_emf *emf)
 }
 
 // Update ghost cells in the upper overlap zone (Y direction, OpenAcc)
-void emf_update_gc_y_openacc(t_emf *emf)
+void emf_update_gc_y_openacc(t_emf *emf, const int device)
 {
 	const int nrow = emf->nrow;
 
@@ -131,10 +133,6 @@ void emf_update_gc_y_openacc(t_emf *emf)
 #ifdef ENABLE_PREFETCH
 	const int size_overlap = emf->overlap_size;
 	const int size = emf->total_size;
-
-	int device = -1;
-	cudaGetDevice(&device);
-
 	emf_prefetch_openacc(emf->B_buf, size, device);
 	emf_prefetch_openacc(emf->E_buf, size, device);
 	emf_prefetch_openacc(E_overlap, size_overlap, device);
@@ -161,7 +159,7 @@ void emf_update_gc_y_openacc(t_emf *emf)
 }
 
 // Move the simulation window
-void emf_move_window_openacc(t_emf *emf)
+void emf_move_window_openacc(t_emf *emf, const int device)
 {
 	if ((emf->iter * emf->dt) > emf->dx[0] * (emf->n_move + 1))
 	{
@@ -176,8 +174,6 @@ void emf_move_window_openacc(t_emf *emf)
 		emf->n_move++;
 
 #ifdef ENABLE_PREFETCH
-	int device = -1;
-	cudaGetDevice(&device);
 	emf_prefetch_openacc(B, size, device);
 	emf_prefetch_openacc(E, size, device);
 #endif
@@ -213,13 +209,11 @@ void emf_move_window_openacc(t_emf *emf)
 }
 
 // Perform the local integration of the fields (and post processing). OpenAcc Task
-void emf_advance_openacc(t_emf *emf, const t_current *current)
+void emf_advance_openacc(t_emf *emf, const t_current *current, const int device)
 {
 	const float dt = emf->dt;
 
 #ifdef ENABLE_PREFETCH
-	int device = -1;
-	cudaGetDevice(&device);
 	emf_prefetch_openacc(emf->B_buf, emf->total_size, device);
 	emf_prefetch_openacc(emf->E_buf, emf->total_size, device);
 	current_prefetch_openacc(current->J_buf, current->total_size, device);
@@ -237,6 +231,6 @@ void emf_advance_openacc(t_emf *emf, const t_current *current)
 	emf->iter += 1;
 
 	// Move simulation window if needed
-	if (emf->moving_window) emf_move_window_openacc(emf);
+	if (emf->moving_window) emf_move_window_openacc(emf, device);
 }
 

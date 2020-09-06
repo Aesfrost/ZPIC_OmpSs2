@@ -9,14 +9,14 @@
 
 #include "../simulation.h"
 
-void sim_init(t_simulation *sim, int n_regions)
+void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_regions)
 {
 	// Time step
-	float dt = 0.009;
-	float tmax = 72;
+	float dt = 0.0045;
+	float tmax = 36;
 
 	// Simulation box
-	int nx[2] = {2000, 512};
+	int nx[2] = {4000, 2048};
 	float box[2] = {20.0, 25.6};
 
 	// Diagnostic frequency
@@ -26,7 +26,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	const int n_species = 1;
 
 	// Use 8x8 particles per cell
-	int ppc[] = {8, 8};
+	int ppc[] = {3, 3};
 
 	// Density profile
 	t_density density = {.type = STEP, .start = 20.0};
@@ -35,7 +35,7 @@ void sim_init(t_simulation *sim, int n_regions)
 	spec_new(&species[0], "electrons", -1.0, ppc, NULL, NULL, nx, box, dt, &density, nx[1]);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa-4000-66M-2000-512", n_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa-8000-66M-4000-2048", n_regions, gpu_percentage, n_gpu_regions);
 
 	// Add laser pulse (this must come after sim_new)
 	t_emf_laser laser = {.type = GAUSSIAN, .start = 17.0, .fwhm = 2.0, .a0 = 2.0, .omega0 = 10.0, .W0 = 4.0,

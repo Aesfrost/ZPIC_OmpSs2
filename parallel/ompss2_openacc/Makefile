@@ -3,7 +3,7 @@ CC = pgimcc
 CFLAGS = --ompss-2 -O3 --openacc
 
 #CC = pgcc
-#CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -Mcuda -g
+#CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -cudalibs -g
 
 INCLUDES = -I/home/nicolas/ompss-2/include/
 LDFLAGS = -lm
@@ -14,7 +14,7 @@ TARGET = zpic
 
 all : $(TARGET)
 
-prefetch : CFLAGS += -DENABLE_PREFETCH 
+prefetch : CFLAGS += -DENABLE_PREFETCH --cuda
 prefetch : $(TARGET)
 
 valgrind: $(SOURCE) $(KERNELS)

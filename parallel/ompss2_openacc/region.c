@@ -164,8 +164,17 @@ void region_init(t_region *region)
 	current_overlap_zone(&region->local_current, &region->prev->local_current);
 	emf_overlap_zone(&region->local_emf, &region->prev->local_emf);
 
-	for(int n = 0; n < region->n_species; n++)
-		if(region->enable_gpu) spec_organize_in_tiles(&region->species[n], region->limits_y);
+	for (int n = 0; n < region->n_species; n++)
+	{
+		region->species[n].outgoing_part[0] = &region->prev->species[n].incoming_part[1];
+		region->species[n].outgoing_part[1] = &region->next->species[n].incoming_part[0];
+	}
+
+	if (region->enable_gpu)
+	{
+		for (int n = 0; n < region->n_species; n++)
+			spec_organize_in_tiles(&region->species[n], region->limits_y);
+	}
 }
 
 // Set moving window
@@ -241,8 +250,7 @@ void region_spec_advance(t_region *region)
 			spec_advance_openacc(&region->species[i], &region->local_emf, &region->local_current,
 					region->limits_y);
 			if(region->species[i].moving_window) spec_move_window_openacc(&region->species[i], region->limits_y);
-			spec_check_boundaries_openacc(&region->species[i], &region->next->species[i],
-					&region->prev->species[i], region->limits_y);
+			spec_check_boundaries_openacc(&region->species[i], region->limits_y);
 		}
 	} else
 	{
@@ -252,8 +260,7 @@ void region_spec_advance(t_region *region)
 		{
 			spec_advance(&region->species[i], &region->local_emf, &region->local_current,
 					region->limits_y);
-			spec_post_processing(&region->species[i], &region->next->species[i],
-					&region->prev->species[i], region->limits_y);
+			spec_post_processing(&region->species[i], region->limits_y);
 		}
 	}
 
@@ -269,7 +276,7 @@ void region_spec_update(t_region *region)
 	if(region->enable_gpu)
 	{
 		for (int i = 0; i < region->n_species; i++)
-			spec_partial_sort_openacc(&region->species[i], region->limits_y);
+			spec_sort_openacc(&region->species[i], region->limits_y);
 	}else
 	{
 		for (int i = 0; i < region->n_species; i++)

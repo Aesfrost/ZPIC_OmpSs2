@@ -73,7 +73,6 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 
 void current_delete(t_current *current)
 {
-	if(current->J_temp) free_align_buffer(current->J_temp);
 	free_align_buffer(current->J_buf);
 	current->J_buf = NULL;
 }

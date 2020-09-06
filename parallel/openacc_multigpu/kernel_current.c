@@ -12,6 +12,8 @@
 #include "utilities.h"
 
 #ifdef ENABLE_PREFETCH
+#include <cuda.h>
+
 void current_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
 {
 	cudaMemPrefetchAsync(buf, size * sizeof(t_vfld), device, NULL);
@@ -19,14 +21,12 @@ void current_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
 #endif
 
 // Set the current buffer to zero
-void current_zero_openacc(t_current *current)
+void current_zero_openacc(t_current *current, const int device)
 {
 	// zero fields
 	const int size = current->total_size;
 
 #ifdef ENABLE_PREFETCH
-	int device = -1;
-	cudaGetDevice(&device);
 	current_prefetch_openacc(current->J_buf, current->total_size, device);
 #endif
 
@@ -40,7 +40,7 @@ void current_zero_openacc(t_current *current)
 }
 
 // Each region is only responsible to do the reduction operation (y direction) in its top edge (OpenAcc)
-void current_reduction_y_openacc(t_current *current)
+void current_reduction_y_openacc(t_current *current, const int device)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
@@ -50,8 +50,6 @@ void current_reduction_y_openacc(t_current *current)
 	const int size_overlap = current->overlap_size;
 	const int size = current->total_size;
 
-	int device = -1;
-	cudaGetDevice(&device);
 	current_prefetch_openacc(current->J_buf, size, device);
 	current_prefetch_openacc(J_overlap, size_overlap, device);
 #endif
@@ -71,7 +69,7 @@ void current_reduction_y_openacc(t_current *current)
 }
 
 // Current reduction between ghost cells in the x direction (OpenAcc)
-void current_reduction_x_openacc(t_current *current)
+void current_reduction_x_openacc(t_current *current, const int device)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
@@ -79,9 +77,6 @@ void current_reduction_x_openacc(t_current *current)
 
 #ifdef ENABLE_PREFETCH
 	const int size = current->total_size;
-
-	int device = -1;
-	cudaGetDevice(&device);
 	current_prefetch_openacc(current->J_buf, size, device);
 #endif
 
@@ -102,7 +97,7 @@ void current_reduction_x_openacc(t_current *current)
 }
 
 // Update the ghost cells in the y direction (only the upper zone, OpenAcc)
-void current_gc_update_y_openacc(t_current *current)
+void current_gc_update_y_openacc(t_current *current, const int device)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
@@ -111,9 +106,6 @@ void current_gc_update_y_openacc(t_current *current)
 #ifdef ENABLE_PREFETCH
 	const int size_overlap = current->overlap_size;
 	const int size = current->total_size;
-
-	int device = -1;
-	cudaGetDevice(&device);
 	current_prefetch_openacc(J, size, device);
 	current_prefetch_openacc(J_overlap, size_overlap, device);
 #endif
@@ -171,15 +163,12 @@ void kernel_x_openacc(t_current *const current, const t_fld sa, const t_fld sb)
 
 // Apply multiple passes of a binomial filter to reduce noise (X direction).
 // Then, pass a compensation filter (if applicable). OpenAcc Task
-void current_smooth_x_openacc(t_current *current)
+void current_smooth_x_openacc(t_current *current, const int device)
 {
 	const int size = current->total_size;
 	current->J_temp = alloc_align_buffer(DEFAULT_ALIGNMENT, size * sizeof(t_vfld));
 
 #ifdef ENABLE_PREFETCH
-
-	int device = -1;
-	cudaGetDevice(&device);
 	current_prefetch_openacc(current->J_buf, size, device);
 	current_prefetch_openacc(current->J_temp, size, device);
 #endif

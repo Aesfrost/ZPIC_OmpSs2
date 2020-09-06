@@ -120,7 +120,11 @@ void region_init(t_region *region)
 	acc_set_device_num(region->id % _num_gpus, DEVICE_TYPE);
 
 	for(int i = 0; i < region->n_species; i++)
-		spec_organize_in_tiles(&region->species[i], region->limits_y);
+	{
+		region->species[i].outgoing_part[0] = &region->prev->species[i].incoming_part[1];
+		region->species[i].outgoing_part[1] = &region->next->species[i].incoming_part[0];
+		spec_organize_in_tiles(&region->species[i], region->limits_y, i % _num_gpus);
+	}
 }
 
 // Set moving window
@@ -190,21 +194,25 @@ void region_advance(t_region *regions, const int n_regions)
 	{
 		acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
 
-		current_zero_openacc(&regions[i].local_current);
+		current_zero_openacc(&regions[i].local_current, i % _num_gpus);
 
 		for (int k = 0; k < regions[i].n_species; k++)
 		{
-			spec_advance_openacc(&regions[i].species[k], &regions[i].local_emf, &regions[i].local_current,
-								 regions[i].limits_y);
-			if(regions[i].species[k].moving_window) spec_move_window_openacc(&regions[i].species[k], regions[i].limits_y);
-			spec_check_boundaries_openacc(&regions[i].species[k], &regions[i].next->species[k],
-										&regions[i].prev->species[k], regions[i].limits_y);
+			spec_advance_openacc(&regions[i].species[k], &regions[i].local_emf,
+					&regions[i].local_current, regions[i].limits_y, i % _num_gpus);
+
+			if (regions[i].species[k].moving_window)
+				spec_move_window_openacc(&regions[i].species[k], regions[i].limits_y, i % _num_gpus);
+
+			spec_check_boundaries_openacc(&regions[i].species[k], regions[i].limits_y,
+					i % _num_gpus);
 		}
 
 		// Advance iteration count
 		regions[i].iter++;
 
-		if(!regions[i].local_current.moving_window) current_reduction_x_openacc(&regions[i].local_current);
+		if (!regions[i].local_current.moving_window)
+			current_reduction_x_openacc(&regions[i].local_current, i % _num_gpus);
 	}
 
 	#pragma omp for schedule(static, 1)
@@ -213,9 +221,9 @@ void region_advance(t_region *regions, const int n_regions)
 		acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
 
 		for (int k = 0; k < regions[i].n_species; k++)
-			spec_partial_sort_openacc(&regions[i].species[k], regions[i].limits_y);
+			spec_sort_openacc(&regions[i].species[k], regions[i].limits_y, i % _num_gpus);
 
-		current_reduction_y_openacc(&regions[i].local_current);
+		current_reduction_y_openacc(&regions[i].local_current, i % _num_gpus);
 	}
 
 	if (regions[0].local_current.smooth.xtype != NONE)
@@ -224,14 +232,14 @@ void region_advance(t_region *regions, const int n_regions)
 		for(int i = 0; i < n_regions; i++)
 		{
 			acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
-			current_smooth_x_openacc(&regions[i].local_current);
+			current_smooth_x_openacc(&regions[i].local_current,i % _num_gpus);
 		}
 
 		#pragma omp for schedule(static, 1)
 		for(int i = 0; i < n_regions; i++)
 		{
 			acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
-			current_gc_update_y_openacc(&regions[i].local_current);
+			current_gc_update_y_openacc(&regions[i].local_current, i % _num_gpus);
 		}
 	}
 
@@ -250,7 +258,7 @@ void region_advance(t_region *regions, const int n_regions)
 			for(int i = 0; i < n_regions; i++)
 			{
 				acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
-				current_gc_update_y_openacc(&regions[i].local_current);
+				current_gc_update_y_openacc(&regions[i].local_current, i % _num_gpus);
 			}
 		}
 
@@ -267,7 +275,7 @@ void region_advance(t_region *regions, const int n_regions)
 			for(int i = 0; i < n_regions; i++)
 			{
 				acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
-				current_gc_update_y_openacc(&regions[i].local_current);
+				current_gc_update_y_openacc(&regions[i].local_current, i % _num_gpus);
 			}
 		}
 	}
@@ -276,13 +284,13 @@ void region_advance(t_region *regions, const int n_regions)
 	for(int i = 0; i < n_regions; i++)
 	{
 		acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
-		emf_advance_openacc(&regions[i].local_emf, &regions[i].local_current);
+		emf_advance_openacc(&regions[i].local_emf, &regions[i].local_current, i % _num_gpus);
 	}
 
 	#pragma omp for schedule(static, 1)
 	for(int i = 0; i < n_regions; i++)
 	{
 		acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
-		emf_update_gc_y_openacc(&regions[i].local_emf);
+		emf_update_gc_y_openacc(&regions[i].local_emf, i % _num_gpus);
 	}
 }

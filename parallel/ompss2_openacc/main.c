@@ -28,7 +28,7 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-#include "input/weibel-500-4M-512-512.c"
+#include "input/weibel-500-67M-512-512.c"
 
 int main(int argc, const char *argv[])
 {
@@ -47,10 +47,6 @@ int main(int argc, const char *argv[])
 	int n;
 	float t;
 
-#ifdef ENABLE_PREFETCH
-	fprintf(stderr, "Enabling prefetching ...\n");
-#endif
-
 	fprintf(stderr, "Starting simulation ...\n\n");
 
 	uint64_t t0, t1;
@@ -58,15 +54,15 @@ int main(int argc, const char *argv[])
 
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-		if(n == 4) break;
+//		if(n == 300) break;
 
-		fprintf(stderr, "n = %i, t = %f\n", n, t);
-
-		if (report(n, sim.ndump))
-		{
-			#pragma oss taskwait
-			sim_report(&sim);
-		}
+//		fprintf(stderr, "n = %i, t = %f\n", n, t);
+//
+//		if (report(n, sim.ndump))
+//		{
+//			#pragma oss taskwait
+//			sim_report(&sim);
+//		}
 
 		sim_iter(&sim);
 	}

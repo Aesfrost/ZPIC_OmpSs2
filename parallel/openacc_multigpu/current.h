@@ -83,11 +83,11 @@ void current_smooth_x(t_current *current);
 void current_smooth_y(t_current *current, enum smooth_type type);
 
 // OpenAcc Tasks
-void current_zero_openacc(t_current *current);
-void current_reduction_y_openacc(t_current *current);
-void current_reduction_x_openacc(t_current *current);
-void current_smooth_x_openacc(t_current *current);
-void current_gc_update_y_openacc(t_current *current);
+void current_zero_openacc(t_current *current, const int device);
+void current_reduction_y_openacc(t_current *current, const int device);
+void current_reduction_x_openacc(t_current *current, const int device);
+void current_smooth_x_openacc(t_current *current, const int device);
+void current_gc_update_y_openacc(t_current *current, const int device);
 
 // Prefetch
 #ifdef ENABLE_PREFETCH
