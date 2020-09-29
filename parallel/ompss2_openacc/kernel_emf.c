@@ -7,11 +7,11 @@
  Copyright 2020 Centro de Física dos Plasmas. All rights reserved.
 
  *********************************************************************************************/
-
-
 #include "emf.h"
 #include <stdlib.h>
 #include <string.h>
+
+#define LOCAL_BUFFER_SIZE 1024
 
 #ifdef ENABLE_PREFETCH
 void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
@@ -20,22 +20,20 @@ void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
 }
 #endif
 
-void yee_b_openacc(t_emf *emf, const float dt)
+#pragma oss task device(openacc) inout(E[0; total_size]) inout(B[0; total_size]) \
+	label("EMF Advance (GPU, Yee B)")
+void yee_b_openacc(t_vfld *restrict B, const t_vfld *restrict E, const t_fld dt_dx,
+        const t_fld dt_dy, const int nrow, const int nx[2], const int total_size, const int device)
 {
-	// these must not be unsigned because we access negative cell indexes
-	t_fld dt_dx, dt_dy;
-	t_vfld *const restrict B = emf->B;
-	const t_vfld *const restrict E = emf->E;
-	const int nrow = emf->nrow;
-
-	dt_dx = dt / emf->dx[0];
-	dt_dy = dt / emf->dx[1];
+#ifdef MANUAL_GPU_SETUP
+	acc_set_device_num(device, DEVICE_TYPE);
+#endif
 
 	// Canonical implementation
 	#pragma acc parallel loop independent tile(4, 4)
-	for (int j = -1; j <= emf->nx[1]; j++)
+	for (int j = -1; j <= nx[1]; j++)
 	{
-		for (int i = -1; i <= emf->nx[0]; i++)
+		for (int i = -1; i <= nx[0]; i++)
 		{
 			B[i + j * nrow].x += (-dt_dy * (E[i + (j + 1) * nrow].z - E[i + j * nrow].z));
 			B[i + j * nrow].y += (dt_dx * (E[(i + 1) + j * nrow].z - E[i + j * nrow].z));
@@ -45,26 +43,22 @@ void yee_b_openacc(t_emf *emf, const float dt)
 	}
 }
 
-void yee_e_openacc(t_emf *emf, const t_current *current, const float dt)
+#pragma oss task device(openacc) inout(E[0; total_size]) inout(B[0; total_size]) \
+	in(J[0; total_size]) label("EMF Advance (GPU, Yee E)")
+void yee_e_openacc(const t_vfld *restrict B, t_vfld *restrict E, const t_vfld *restrict J,
+        const const t_fld dt_dx, const t_fld dt_dy, const float dt, const int nrow_e,
+        const int nrow_j, const int nx[2], const int total_size, const int device)
 {
-	// these must not be unsigned because we access negative cell indexes
-	const int nrow_e = emf->nrow;
-	const int nrow_j = current->nrow;
 
-	t_fld dt_dx, dt_dy;
-
-	dt_dx = dt / emf->dx[0];
-	dt_dy = dt / emf->dx[1];
-
-	t_vfld *const restrict E = emf->E;
-	const t_vfld *const restrict B = emf->B;
-	const t_vfld *const restrict J = current->J;
+#ifdef MANUAL_GPU_SETUP
+	acc_set_device_num(device, DEVICE_TYPE);
+#endif
 
 	// Canonical implementation
 	#pragma acc parallel loop independent tile(4, 4)
-	for (int j = 0; j <= emf->nx[1] + 1; j++)
+	for (int j = 0; j <= nx[1] + 1; j++)
 	{
-		for (int i = 0; i <= emf->nx[0] + 1; i++)
+		for (int i = 0; i <= nx[0] + 1; i++)
 		{
 			E[i + j * nrow_e].x += (+dt_dy * (B[i + j * nrow_e].z - B[i + (j - 1) * nrow_e].z))
 					- dt * J[i + j * nrow_j].x;
@@ -77,49 +71,49 @@ void yee_e_openacc(t_emf *emf, const t_current *current, const float dt)
 }
 
 // Update the ghost cells in the X direction (OpenAcc)
-void emf_gc_x_openacc(t_emf *emf)
+#pragma oss task device(openacc) inout(E[0; total_size]) inout(B[0; total_size]) \
+	label("EMF Advance (GPU, GC X)")
+void emf_gc_x_openacc(t_vfld *restrict E, t_vfld *restrict B, const int nrow, const int nx[2],
+        const int gc[2][2], const int total_size, int *iter, const int device)
 {
-	// For moving window don't update x boundaries
-	if (!emf->moving_window)
+
+#ifdef MANUAL_GPU_SETUP
+	acc_set_device_num(device, DEVICE_TYPE);
+#endif
+
+	#pragma acc parallel loop collapse(2) independent
+	for (int j = -gc[1][0]; j < nx[1] + gc[1][1]; j++)
 	{
-		const int nrow = emf->nrow;
-
-		t_vfld *const restrict E = emf->E;
-		t_vfld *const restrict B = emf->B;
-
-		// x
-		#pragma acc parallel loop collapse(2) independent
-		for (int j = -emf->gc[1][0]; j < emf->nx[1] + emf->gc[1][1]; j++)
+		for (int i = -gc[0][0]; i < gc[0][1]; i++)
 		{
-			// lower
-			for (int i = -emf->gc[0][0]; i < emf->gc[0][1]; i++)
+			if (i < 0)
 			{
-				if(i < 0)
-				{
-					E[i + j * nrow].x = E[emf->nx[0] + i + j * nrow].x;
-					E[i + j * nrow].y = E[emf->nx[0] + i + j * nrow].y;
-					E[i + j * nrow].z = E[emf->nx[0] + i + j * nrow].z;
+				E[i + j * nrow].x = E[nx[0] + i + j * nrow].x;
+				E[i + j * nrow].y = E[nx[0] + i + j * nrow].y;
+				E[i + j * nrow].z = E[nx[0] + i + j * nrow].z;
 
-					B[i + j * nrow].x = B[emf->nx[0] + i + j * nrow].x;
-					B[i + j * nrow].y = B[emf->nx[0] + i + j * nrow].y;
-					B[i + j * nrow].z = B[emf->nx[0] + i + j * nrow].z;
-				}else
-				{
-					E[emf->nx[0] + i + j * nrow].x = E[i + j * nrow].x;
-					E[emf->nx[0] + i + j * nrow].y = E[i + j * nrow].y;
-					E[emf->nx[0] + i + j * nrow].z = E[i + j * nrow].z;
+				B[i + j * nrow].x = B[nx[0] + i + j * nrow].x;
+				B[i + j * nrow].y = B[nx[0] + i + j * nrow].y;
+				B[i + j * nrow].z = B[nx[0] + i + j * nrow].z;
+			} else
+			{
+				E[nx[0] + i + j * nrow].x = E[i + j * nrow].x;
+				E[nx[0] + i + j * nrow].y = E[i + j * nrow].y;
+				E[nx[0] + i + j * nrow].z = E[i + j * nrow].z;
 
-					B[emf->nx[0] + i + j * nrow].x = B[i + j * nrow].x;
-					B[emf->nx[0] + i + j * nrow].y = B[i + j * nrow].y;
-					B[emf->nx[0] + i + j * nrow].z = B[i + j * nrow].z;
-				}
+				B[nx[0] + i + j * nrow].x = B[i + j * nrow].x;
+				B[nx[0] + i + j * nrow].y = B[i + j * nrow].y;
+				B[nx[0] + i + j * nrow].z = B[i + j * nrow].z;
 			}
 		}
 	}
+
+	// Advance internal iteration number
+	*iter += 1;
 }
 
 // Update ghost cells in the upper overlap zone (Y direction, OpenAcc)
-void emf_update_gc_y_openacc(t_emf *emf)
+void emf_update_gc_y_openacc(t_emf *emf, const int device)
 {
 	const int nrow = emf->nrow;
 
@@ -128,12 +122,13 @@ void emf_update_gc_y_openacc(t_emf *emf)
 	t_vfld *const restrict E_overlap = emf->E_upper;
 	t_vfld *const restrict B_overlap = emf->B_upper;
 
+#ifdef MANUAL_GPU_SETUP
+	acc_set_device_num(device, DEVICE_TYPE);
+#endif
+
 #ifdef ENABLE_PREFETCH
 	const int size_overlap = emf->overlap_size;
 	const int size = emf->total_size;
-
-	int device = -1;
-	cudaGetDevice(&device);
 
 	emf_prefetch_openacc(emf->B_buf, size, device);
 	emf_prefetch_openacc(emf->E_buf, size, device);
@@ -161,82 +156,96 @@ void emf_update_gc_y_openacc(t_emf *emf)
 }
 
 // Move the simulation window
-void emf_move_window_openacc(t_emf *emf)
+#pragma oss task device(openacc) inout(E[0; total_size]) inout(B[0; total_size]) \
+	label("EMF Advance (GPU, Move Window)")
+void emf_move_window_openacc(t_vfld *restrict E, t_vfld *restrict B, int *n_move, const int nrow,
+        const int gc[2][2], const int nx[2], const int total_size, const t_fld dt, const t_fld dx,
+        int *iter, const int device)
 {
-	if ((emf->iter * emf->dt) > emf->dx[0] * (emf->n_move + 1))
+	const t_vfld zero_fld = {0, 0, 0};
+
+	// Advance internal iteration number
+	*iter += 1;
+
+	if ((*iter * dt) > dx * (*n_move + 1))
 	{
-		const int nrow = emf->nrow;
-		size_t size = emf->total_size;
-		t_vfld *const restrict E = malloc(size * sizeof(t_vfld));
-		t_vfld *const restrict B = malloc(size * sizeof(t_vfld));
-
-		const t_vfld zero_fld = {0., 0., 0.};
-
 		// Increase moving window counter
-		emf->n_move++;
+		(*n_move)++;
 
-#ifdef ENABLE_PREFETCH
-	int device = -1;
-	cudaGetDevice(&device);
-	emf_prefetch_openacc(B, size, device);
-	emf_prefetch_openacc(E, size, device);
-#endif
-
-		#pragma acc parallel loop
-		for(int i = 0; i < size; i++)
-		{
-			E[i] = emf->E_buf[i];
-			B[i] = emf->B_buf[i];
-		}
+	#ifdef MANUAL_GPU_SETUP
+		acc_set_device_num(device, DEVICE_TYPE);
+	#endif
 
 		// Shift data left 1 cell and zero rightmost cells
-		#pragma acc parallel loop independent collapse(2)
-		for (int j = 0; j < emf->gc[1][0] + emf->nx[1] + emf->gc[1][1]; j++)
+		#pragma acc parallel loop gang
+		for (int j = 0; j < gc[1][0] + nx[1] + gc[1][1]; j++)
 		{
-			for (int i = 0; i < nrow; i++)
+			t_vfld B_temp[LOCAL_BUFFER_SIZE];
+			t_vfld E_temp[LOCAL_BUFFER_SIZE];
+
+			#pragma acc cache(B_temp[0:LOCAL_BUFFER_SIZE])
+			#pragma acc cache(E_temp[0:LOCAL_BUFFER_SIZE])
+
+			for(int begin_idx = 0; begin_idx < nrow; begin_idx += LOCAL_BUFFER_SIZE)
 			{
-				if (i < emf->gc[0][0] + emf->nx[0] - 1)
+				#pragma acc loop vector
+				for(int i = 0; i < LOCAL_BUFFER_SIZE; i++)
 				{
-					emf->E_buf[i + j * nrow] = E[i + j * nrow + 1];
-					emf->B_buf[i + j * nrow] = B[i + j * nrow + 1];
-				} else
+					if((begin_idx + i) < gc[0][0] + nx[0] - 1)
+					{
+						B_temp[i] = B[begin_idx + 1 + i + j * nrow];
+						E_temp[i] = E[begin_idx + 1 + i + j * nrow];
+					}else
+					{
+						B_temp[i] = zero_fld;
+						E_temp[i] = zero_fld;
+					}
+				}
+
+				#pragma acc loop vector
+				for(int i = 0; i < LOCAL_BUFFER_SIZE; i++)
 				{
-					emf->E_buf[i + j * nrow] = zero_fld;
-					emf->B_buf[i + j * nrow] = zero_fld;
+					if(begin_idx + i < nrow)
+					{
+						E[begin_idx + i + j * nrow] = E_temp[i];
+						B[begin_idx + i + j * nrow] = B_temp[i];
+					}
 				}
 			}
 		}
-
-		free(E);
-		free(B);
 	}
 }
 
 // Perform the local integration of the fields (and post processing). OpenAcc Task
-void emf_advance_openacc(t_emf *emf, const t_current *current)
+void emf_advance_openacc(t_emf *emf, const t_current *current, const int device)
 {
-	const float dt = emf->dt;
+	const t_fld dt = emf->dt;
+	const t_fld dt_dx = dt / emf->dx[0];
+	const t_fld dt_dy = dt / emf->dx[1];
 
 #ifdef ENABLE_PREFETCH
-	int device = -1;
-	cudaGetDevice(&device);
 	emf_prefetch_openacc(emf->B_buf, emf->total_size, device);
 	emf_prefetch_openacc(emf->E_buf, emf->total_size, device);
 	current_prefetch_openacc(current->J_buf, current->total_size, device);
 #endif
 
 	// Advance EM field using Yee algorithm modified for having E and B time centered
-	yee_b_openacc(emf, dt / 2.0f);
-	yee_e_openacc(emf, current, dt);
-	yee_b_openacc(emf, dt / 2.0f);
+	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, emf->total_size, device);
+	yee_e_openacc(emf->B, emf->E, current->J, dt_dx, dt_dy, dt, emf->nrow, current->nrow, emf->nx,
+	        emf->total_size, device);
+	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, emf->total_size, device);
 
-	// Update guard cells with new values
-	emf_gc_x_openacc(emf);
+	if(emf->moving_window)
+	{
+		// Move simulation window
+		emf_move_window_openacc(emf->E_buf, emf->B_buf, &emf->n_move, emf->nrow, emf->gc, emf->nx,
+		        emf->total_size, dt, emf->dx[0], &emf->iter, device);
+	} else
+	{
+		// Update guard cells with new values
+		emf_gc_x_openacc(emf->E, emf->B, emf->nrow, emf->nx, emf->gc, emf->total_size,
+		        &emf->iter, device);
+	}
 
-	// Advance internal iteration number
-	emf->iter += 1;
-
-	// Move simulation window if needed
-	if (emf->moving_window) emf_move_window_openacc(emf);
 }
 

@@ -101,30 +101,27 @@ void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag,
 // CPU Tasks
 #pragma oss task in(current->J_buf[0; current->total_size]) \
 inout(emf->E_buf[0; emf->total_size]) inout(emf->B_buf[0; emf->total_size]) \
-label(EMF Advance)
+label("EMF Advance")
 void emf_advance(t_emf *emf, const t_current *current);
 
 #pragma oss task inout(emf->B_buf[0; emf->overlap_size]) \
 inout(emf->B_upper[-emf->gc[0][0]; emf->overlap_size]) \
 inout(emf->E_buf[0; emf->overlap_size]) \
 inout(emf->E_upper[-emf->gc[0][0]; emf->overlap_size]) \
-label(EMF Update GC)
+label("EMF Update GC")
 void emf_update_gc_y(t_emf *emf);
 
 void emf_update_gc_x(t_emf *emf);
 
 // OpenAcc Tasks
-#pragma oss task in(current->J_buf[0; current->total_size]) \
-inout(emf->E_buf[0; emf->total_size]) inout(emf->B_buf[0; emf->total_size]) \
-label(EMF Advance (GPU)) device(openacc)
-void emf_advance_openacc(t_emf *emf, const t_current *current);
+void emf_advance_openacc(t_emf *emf, const t_current *current, const int device);
 
 #pragma oss task inout(emf->B_buf[0; emf->overlap_size]) \
 inout(emf->B_upper[-emf->gc[0][0]; emf->overlap_size]) \
 inout(emf->E_buf[0; emf->overlap_size]) \
 inout(emf->E_upper[-emf->gc[0][0]; emf->overlap_size]) \
-label(EMF Update GC (GPU)) device(openacc)
-void emf_update_gc_y_openacc(t_emf *emf);
+label("EMF Update GC (GPU)") device(openacc)
+void emf_update_gc_y_openacc(t_emf *emf, const int device);
 
 // Prefetch
 #ifdef ENABLE_PREFETCH

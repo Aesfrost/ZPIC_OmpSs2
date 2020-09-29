@@ -28,7 +28,7 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-#include "input/weibel-500-67M-512-512.c"
+#include "input/lwfa-2000-4M-2000-256.c"
 
 int main(int argc, const char *argv[])
 {
@@ -47,6 +47,10 @@ int main(int argc, const char *argv[])
 	int n;
 	float t;
 
+#ifdef MANUAL_GPU_SETUP
+	printf("Manual Setup...\n");
+#endif
+
 	fprintf(stderr, "Starting simulation ...\n\n");
 
 	uint64_t t0, t1;
@@ -54,7 +58,7 @@ int main(int argc, const char *argv[])
 
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-//		if(n == 300) break;
+		if(n == 50) break;
 
 //		fprintf(stderr, "n = %i, t = %f\n", n, t);
 //

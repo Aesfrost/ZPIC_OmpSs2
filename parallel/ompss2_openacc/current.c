@@ -67,8 +67,6 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 	current->dt = dt;
 
 	current->moving_window = 0;
-
-	current->J_temp = NULL;
 }
 
 void current_delete(t_current *current)

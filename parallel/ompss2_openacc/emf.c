@@ -602,7 +602,7 @@ void emf_move_window(t_emf *emf)
 		// Shift data left 1 cell and zero rightmost cells
 		for (j = 0; j < emf->nx[1]; j++)
 		{
-			for (i = -emf->gc[0][0]; i < emf->nx[0]- 1; i++)
+			for (i = -emf->gc[0][0]; i < emf->nx[0] - 1; i++)
 			{
 				E[i + j * nrow] = E[i + j * nrow + 1];
 				B[i + j * nrow] = B[i + j * nrow + 1];

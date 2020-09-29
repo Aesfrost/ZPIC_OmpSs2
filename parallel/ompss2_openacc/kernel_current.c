@@ -11,6 +11,9 @@
 #include "current.h"
 #include "utilities.h"
 
+#define LOCAL_BUFFER_SIZE 1024
+#define MIN_VALUE(x, y) x < y ? x : y
+
 #ifdef ENABLE_PREFETCH
 void current_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
 {
@@ -19,14 +22,16 @@ void current_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
 #endif
 
 // Set the current buffer to zero
-void current_zero_openacc(t_current *current)
+void current_zero_openacc(t_current *current, const int device)
 {
 	// zero fields
 	const int size = current->total_size;
 
+#ifdef MANUAL_GPU_SETUP
+	acc_set_device_num(device, DEVICE_TYPE);
+#endif
+
 #ifdef ENABLE_PREFETCH
-	int device = -1;
-	cudaGetDevice(&device);
 	current_prefetch_openacc(current->J_buf, current->total_size, device);
 #endif
 
@@ -40,18 +45,19 @@ void current_zero_openacc(t_current *current)
 }
 
 // Each region is only responsible to do the reduction operation (y direction) in its top edge (OpenAcc)
-void current_reduction_y_openacc(t_current *current)
+void current_reduction_y_openacc(t_current *current, const int device)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
 	t_vfld *restrict const J_overlap = current->J_upper;
 
+#ifdef MANUAL_GPU_SETUP
+	acc_set_device_num(device, DEVICE_TYPE);
+#endif
+
 #ifdef ENABLE_PREFETCH
 	const int size_overlap = current->overlap_size;
 	const int size = current->total_size;
-
-	int device = -1;
-	cudaGetDevice(&device);
 	current_prefetch_openacc(current->J_buf, size, device);
 	current_prefetch_openacc(J_overlap, size_overlap, device);
 #endif
@@ -71,17 +77,18 @@ void current_reduction_y_openacc(t_current *current)
 }
 
 // Current reduction between ghost cells in the x direction (OpenAcc)
-void current_reduction_x_openacc(t_current *current)
+void current_reduction_x_openacc(t_current *current, const int device)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
 	t_vfld *restrict const J_overlap = &current->J[current->nx[0]];
 
+#ifdef MANUAL_GPU_SETUP
+	acc_set_device_num(device, DEVICE_TYPE);
+#endif
+
 #ifdef ENABLE_PREFETCH
 	const int size = current->total_size;
-
-	int device = -1;
-	cudaGetDevice(&device);
 	current_prefetch_openacc(current->J_buf, size, device);
 #endif
 
@@ -102,18 +109,19 @@ void current_reduction_x_openacc(t_current *current)
 }
 
 // Update the ghost cells in the y direction (only the upper zone, OpenAcc)
-void current_gc_update_y_openacc(t_current *current)
+void current_gc_update_y_openacc(t_current *current, const int device)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
 	t_vfld *restrict const J_overlap = current->J_upper;
 
+#ifdef MANUAL_GPU_SETUP
+	acc_set_device_num(device, DEVICE_TYPE);
+#endif
+
 #ifdef ENABLE_PREFETCH
 	const int size_overlap = current->overlap_size;
 	const int size = current->total_size;
-
-	int device = -1;
-	cudaGetDevice(&device);
 	current_prefetch_openacc(J, size, device);
 	current_prefetch_openacc(J_overlap, size_overlap, device);
 #endif
@@ -134,59 +142,67 @@ void current_gc_update_y_openacc(t_current *current)
 	}
 }
 
-// Apply the filter in the x direction (OpenAcc)
-void kernel_x_openacc(t_current *const current, const t_fld sa, const t_fld sb)
-{
-	const int nrow = current->nrow;
-	t_vfld *restrict const J = current->J;
-	t_vfld *restrict J_aux = current->J_temp + current->gc[0][0] + current->gc[1][0] * current->nrow;
-
-	#pragma acc parallel loop gang
-	for (int j = 0; j < current->nx[1]; ++j)
-	{
-		#pragma acc loop vector
-		for(int i = -current->gc[0][0]; i < current->nx[0] + current->gc[0][0]; i++)
-			J_aux[i + j * nrow] = J[i + j * nrow];
-
-		#pragma acc loop vector
-		for (int i = 0; i < current->nx[0]; ++i)
-		{
-			J[i + j * nrow].x = J_aux[i - 1 + j * nrow].x * sa + J_aux[i + j * nrow].x * sb
-					+ J_aux[i + 1 + j * nrow].x * sa;
-			J[i + j * nrow].y = J_aux[i - 1 + j * nrow].y * sa + J_aux[i + j * nrow].y * sb
-					+ J_aux[i + 1 + j * nrow].y * sa;
-			J[i + j * nrow].z = J_aux[i - 1 + j * nrow].z * sa + J_aux[i + j * nrow].z * sb
-					+ J_aux[i + 1 + j * nrow].z * sa;
-		}
-
-		if(!current->moving_window)
-		{
-			#pragma acc loop vector
-			for (int i = -current->gc[0][0]; i < current->gc[0][1]; i++)
-				if(i < 0) J[i + j * nrow] = J[current->nx[0] + i + j * nrow];
-				else J[current->nx[0] + i + j * nrow] = J[i + j * nrow];
-		}
-	}
-}
-
 // Apply multiple passes of a binomial filter to reduce noise (X direction).
 // Then, pass a compensation filter (if applicable). OpenAcc Task
-void current_smooth_x_openacc(t_current *current)
+void current_smooth_x_openacc(t_current *current, const int device)
 {
 	const int size = current->total_size;
-	current->J_temp = alloc_align_buffer(DEFAULT_ALIGNMENT, size * sizeof(t_vfld));
+	const int nrow = current->nrow;
+	t_vfld *restrict const J = current->J;
 
-#ifdef ENABLE_PREFETCH
-
-	int device = -1;
-	cudaGetDevice(&device);
-	current_prefetch_openacc(current->J_buf, size, device);
-	current_prefetch_openacc(current->J_temp, size, device);
+#ifdef MANUAL_GPU_SETUP
+	acc_set_device_num(device, DEVICE_TYPE);
 #endif
+
+#ifdef ENABLE_PREFETCHW>
+	current_prefetch_openacc(current->J_buf, size, device);
+#endif
+
+	t_fld sa = 0.25;
+	t_fld sb = 0.5;
 
 	// binomial filter
 	for (int i = 0; i < current->smooth.xlevel; i++)
-		kernel_x_openacc(current, 0.25, 0.5);
+	{
+		// Apply the filter in the x direction
+		#pragma acc parallel loop gang
+		for (int j = 0; j < current->nx[1]; ++j)
+		{
+			t_vfld J_temp[LOCAL_BUFFER_SIZE + 2];
+			#pragma acc cache(J_temp[0:LOCAL_BUFFER_SIZE + 2])
+
+			for(int begin_idx = 0; begin_idx < current->nx[0]; begin_idx += LOCAL_BUFFER_SIZE)
+			{
+				const int batch = MIN_VALUE(current->nx[0] - begin_idx, LOCAL_BUFFER_SIZE);
+
+				if(begin_idx == 0) J_temp[0] = J[j * nrow - 1];
+				else J_temp[0] = J_temp[LOCAL_BUFFER_SIZE];
+
+				#pragma acc loop vector
+				for(int i = 0; i <= batch; i++)
+					J_temp[i + 1] = J[begin_idx + i + j * nrow];
+
+				#pragma acc loop vector
+				for (int i = 0; i < batch; i++)
+				{
+					J[begin_idx + i + j * nrow].x = J_temp[i].x * sa + J_temp[i + 1].x * sb
+							+ J_temp[i + 2].x * sa;
+					J[begin_idx + i + j * nrow].y = J_temp[i].y * sa + J_temp[i + 1].y * sb
+							+ J_temp[i + 2].y * sa;
+					J[begin_idx + i + j * nrow].z = J_temp[i].z * sa + J_temp[i + 1].z * sb
+							+ J_temp[i + 2].z * sa;
+				}
+			}
+
+			if(!current->moving_window)
+			{
+				#pragma acc loop vector
+				for (int i = -current->gc[0][0]; i < current->gc[0][1]; i++)
+					if(i < 0) J[i + j * nrow] = J[current->nx[0] + i + j * nrow];
+					else J[current->nx[0] + i + j * nrow] = J[i + j * nrow];
+			}
+		}
+	}
 
 	// Compensator
 	if (current->smooth.xtype == COMPENSATED)
@@ -198,8 +214,46 @@ void current_smooth_x_openacc(t_current *current)
 		b = (4.0 + 2.0 * current->smooth.xlevel) / current->smooth.xlevel;
 		total = 2 * a + b;
 
-		kernel_x_openacc(current, a / total, b / total);
-	}
+		sa = a / total;
+		sb = b / total;
 
-	free_align_buffer(current->J_temp);
+		// Apply the filter in the x direction
+		#pragma acc parallel loop gang
+		for (int j = 0; j < current->nx[1]; ++j)
+		{
+			t_vfld J_temp[LOCAL_BUFFER_SIZE + 2];
+			#pragma acc cache(J_temp[0:LOCAL_BUFFER_SIZE + 2])
+
+			for(int begin_idx = 0; begin_idx < current->nx[0]; begin_idx += LOCAL_BUFFER_SIZE)
+			{
+				const int batch = MIN_VALUE(current->nx[0] - begin_idx, LOCAL_BUFFER_SIZE);
+
+				if(begin_idx == 0) J_temp[0] = J[j * nrow - 1];
+				else J_temp[0] = J_temp[LOCAL_BUFFER_SIZE];
+
+				#pragma acc loop vector
+				for(int i = 0; i <= batch; i++)
+					J_temp[i + 1] = J[begin_idx + i + j * nrow];
+
+				#pragma acc loop vector
+				for (int i = 0; i < batch; i++)
+				{
+					J[begin_idx + i + j * nrow].x = J_temp[i].x * sa + J_temp[i + 1].x * sb
+							+ J_temp[i + 2].x * sa;
+					J[begin_idx + i + j * nrow].y = J_temp[i].y * sa + J_temp[i + 1].y * sb
+							+ J_temp[i + 2].y * sa;
+					J[begin_idx + i + j * nrow].z = J_temp[i].z * sa + J_temp[i + 1].z * sb
+							+ J_temp[i + 2].z * sa;
+				}
+			}
+
+			if(!current->moving_window)
+			{
+				#pragma acc loop vector
+				for (int i = -current->gc[0][0]; i < current->gc[0][1]; i++)
+					if(i < 0) J[i + j * nrow] = J[current->nx[0] + i + j * nrow];
+					else J[current->nx[0] + i + j * nrow] = J[i + j * nrow];
+			}
+		}
+	}
 }

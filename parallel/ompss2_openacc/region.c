@@ -22,6 +22,7 @@
 
 static int _n_regions = 0;
 static int _effective_gpu_regions = 0;
+static int _num_gpus = 0;
 
 int get_n_regions()
 {
@@ -155,6 +156,12 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 
 		_n_regions = n_regions;
 		_effective_gpu_regions = gpu_percentage * n_regions;
+
+#ifdef MANUAL_GPU_SETUP
+		_num_gpus = acc_get_num_devices(DEVICE_TYPE);
+#else
+		_num_gpus = 1;
+#endif
 	}
 }
 
@@ -173,7 +180,7 @@ void region_init(t_region *region)
 	if (region->enable_gpu)
 	{
 		for (int n = 0; n < region->n_species; n++)
-			spec_organize_in_tiles(&region->species[n], region->limits_y);
+			spec_organize_in_tiles(&region->species[n], region->limits_y, region->id % _num_gpus);
 	}
 }
 
@@ -243,14 +250,14 @@ void region_spec_advance(t_region *region)
 {
 	if (region->enable_gpu)
 	{
-		current_zero_openacc(&region->local_current);
+		current_zero_openacc(&region->local_current, region->id % _num_gpus);
 
 		for (int i = 0; i < region->n_species; i++)
 		{
 			spec_advance_openacc(&region->species[i], &region->local_emf, &region->local_current,
-					region->limits_y);
-			if(region->species[i].moving_window) spec_move_window_openacc(&region->species[i], region->limits_y);
-			spec_check_boundaries_openacc(&region->species[i], region->limits_y);
+					region->limits_y, region->id % _num_gpus);
+			if(region->species[i].moving_window) spec_move_window_openacc(&region->species[i], region->limits_y, region->id % _num_gpus);
+			spec_check_boundaries_openacc(&region->species[i], region->limits_y, region->id % _num_gpus);
 		}
 	} else
 	{
@@ -276,7 +283,7 @@ void region_spec_update(t_region *region)
 	if(region->enable_gpu)
 	{
 		for (int i = 0; i < region->n_species; i++)
-			spec_sort_openacc(&region->species[i], region->limits_y);
+			spec_sort_openacc(&region->species[i], region->limits_y, region->id % _num_gpus);
 	}else
 	{
 		for (int i = 0; i < region->n_species; i++)
@@ -291,7 +298,7 @@ void region_current_reduction_x(t_region *region)
 {
 	if(region->local_current.moving_window) return;
 
-	if(region->enable_gpu) current_reduction_x_openacc(&region->local_current);
+	if(region->enable_gpu) current_reduction_x_openacc(&region->local_current, region->id % _num_gpus);
 	else current_reduction_x(&region->local_current);
 	if (region->next->id != 0) region_current_reduction_x(region->next);
 }
@@ -299,7 +306,7 @@ void region_current_reduction_x(t_region *region)
 // Current reduction in y for all the regions (recursive calling)
 void region_current_reduction_y(t_region *region)
 {
-	if(region->enable_gpu) current_reduction_y_openacc(&region->local_current);
+	if(region->enable_gpu) current_reduction_y_openacc(&region->local_current, region->id % _num_gpus);
 	else current_reduction_y(&region->local_current);
 	if (region->next->id != 0) region_current_reduction_y(region->next);
 }
@@ -311,12 +318,12 @@ void region_current_smooth(t_region *region, enum CURRENT_SMOOTH_MODE mode)
 	switch (mode)
 	{
 		case SMOOTH_X:
-			if(region->enable_gpu) current_smooth_x_openacc(&region->local_current);
+			if(region->enable_gpu) current_smooth_x_openacc(&region->local_current, region->id % _num_gpus);
 			else current_smooth_x(&region->local_current);
 			break;
 
 		case CURRENT_UPDATE_GC:
-			if(region->enable_gpu) current_gc_update_y_openacc(&region->local_current);
+			if(region->enable_gpu) current_gc_update_y_openacc(&region->local_current, region->id % _num_gpus);
 			else current_gc_update_y(&region->local_current);
 			break;
 
@@ -342,12 +349,12 @@ void region_emf_advance(t_region *region, enum EMF_UPDATE mode)
 	switch (mode)
 	{
 		case EMF_ADVANCE:
-			if(region->enable_gpu) emf_advance_openacc(&region->local_emf, &region->local_current);
+			if(region->enable_gpu) emf_advance_openacc(&region->local_emf, &region->local_current, region->id % _num_gpus);
 			else emf_advance(&region->local_emf, &region->local_current);
 			break;
 
 		case EMF_UPDATE_GC:
-			if(region->enable_gpu) emf_update_gc_y(&region->local_emf);
+			if(region->enable_gpu) emf_update_gc_y_openacc(&region->local_emf, region->id % _num_gpus);
 			else emf_update_gc_y(&region->local_emf);
 			break;
 

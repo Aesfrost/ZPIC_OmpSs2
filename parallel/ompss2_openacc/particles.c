@@ -679,7 +679,7 @@ void interpolate_fld(const t_vfld *restrict const E, const t_vfld *restrict cons
 }
 
 // Particle advance (CPU)
-void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[2])
+void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const int limits_y[2])
 {
 	int i;
 	t_part_data qnx, qny, qvz;
