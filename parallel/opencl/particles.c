@@ -1046,8 +1046,6 @@ void spec_deposit_charge(const t_species *spec, t_part_data *charge)
 	int nrow = spec->nx[0] + 1;
 	t_part_data q = spec->q;
 
-	printf("%d %d\n", spec->part_vector.np, spec->part_vector.np_max);
-
 	for (i = 0; i < spec->part_vector.np; i++)
 	{
 		int idx = spec->part_vector.cell_idx[i].x + nrow * spec->part_vector.cell_idx[i].y;
