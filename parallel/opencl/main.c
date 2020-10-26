@@ -30,7 +30,7 @@
 #include "timer.h"
 
 // Include Simulation parameters here
-#include "input/lwfa-2000-4M-2000-256.c"
+#include "input/lwfa-uniform-2000-4M-2000-256.c"
 
 int main(int argc, const char *argv[])
 {
