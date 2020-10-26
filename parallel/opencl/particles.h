@@ -120,7 +120,7 @@ void spec_sort(t_part_vector *part_vector, t_part_vector *temp_part, t_part_vect
         const int shift, const int ppc[2]);
 
 // OpenCL Kernels
-#pragma omp target device(opencl) copy_deps ndrange(2, n_tiles.x * 512, n_tiles.y, 512, 1) file(kernel_gpu.cl)
+#pragma omp target device(opencl) copy_deps ndrange(2, n_tiles.x * 128, n_tiles.y, 128, 1) file(kernel_gpu.cl)
 #pragma omp task in(E_buf[0; field_size]) in(B_buf[0; field_size]) inout(part_cell_idx[0; np_max]) \
 	inout(part_positions[0; np_max]) inout(part_velocities[0; np_max]) inout(J_buf[0; field_size]) \
 	in(tile_offset[0: n_tiles.x * n_tiles.y]) inout(np_per_tile[0: n_tiles.x * n_tiles.y])
