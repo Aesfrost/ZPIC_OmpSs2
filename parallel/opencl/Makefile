@@ -1,21 +1,20 @@
-# PGI options
-CC = pgimcc
-CFLAGS = --ompss-2 -O3
+PREFIX=.
 
 # GCC options
-# CC = mcc
-# CFLAGS = --ompss-2 -O3 -std=c99
+CC = /home/nicolas/ompss/bin/mcc
+CFLAGS = --ompss -O3 --opencl
 
-INCLUDES = -I/home/nicolas/ompss-2/include/
+INCLUDES =
 LDFLAGS = -lm
 
-SOURCE = current.c emf.c particles.c random.c timer.c main.c simulation.c zdf.c region.c 
+SOURCE = current.c emf.c particles.c random.c timer.c main.c simulation.c zdf.c csv_handler.c 
+KERNELS = #kernel_gpu.cl
 TARGET = zpic
 
 all : $(SOURCE) $(TARGET)
 
 valgrind: $(SOURCE)
-	gcc $^ $(INCLUDES) -o $(TARGET) -O3 -std=c99 -g $(LDFLAGS) 
+	gcc $^ $(INCLUDES) -o $(TARGET) $(LDFLAGS) -lOpenCL -g -O3
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=log.txt ./$(TARGET) 2
 
 $(TARGET) : $(SOURCE:.c=.o) $(KERNELS:.c=.o)
@@ -26,4 +25,4 @@ $(TARGET) : $(SOURCE:.c=.o) $(KERNELS:.c=.o)
 
 clean:
 	@touch $(TARGET) 
-	rm -f $(TARGET) *.o
+	rm -f $(TARGET) *.o mcc_*

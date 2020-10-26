@@ -1,4 +1,4 @@
-/*****************************************************************************************
+/*
  Copyright (C) 2020 Instituto Superior Tecnico
 
  This file is part of the ZPIC Educational code suite
@@ -15,13 +15,12 @@
 
  You should have received a copy of the GNU Affero General Public License
  along with the ZPIC Educational code suite. If not, see <http://www.gnu.org/licenses/>.
-
- *****************************************************************************************
- The original ZPIC was modified to include the support for the OmpSs-2 programming model.
- *****************************************************************************************/
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
+
+#include <math.h>
 
 #include "zpic.h"
 #include "simulation.h"
@@ -30,20 +29,14 @@
 #include "particles.h"
 #include "timer.h"
 
-// Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
+// Include Simulation parameters here
 #include "input/lwfa-2000-4M-2000-256.c"
 
 int main(int argc, const char *argv[])
 {
-	if(argc != 2)
-	{
-		fprintf(stderr, "Please specify the number of regions");
-		exit(1);
-	}
-
 	// Initialize simulation
 	t_simulation sim;
-	sim_init(&sim, atoi(argv[1]));
+	sim_init(&sim);
 
 	// Run simulation
 	int n;
@@ -56,18 +49,18 @@ int main(int argc, const char *argv[])
 
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-// 		fprintf(stderr, "n = %i, t = %f\n", n, t);
-// 
-// 		if (report(n, sim.ndump))
-// 		{
-// 			#pragma oss taskwait
-// 			sim_report(&sim);
-// 		}
+//		if(n == 5) break;
+
+		fprintf(stderr, "n = %i, t = %f\n", n, t);
+		if (report(n, sim.ndump))
+		{
+			#pragma omp taskwait
+			sim_report(&sim);
+		}
 
 		sim_iter(&sim);
+		#pragma omp taskwait noflush
 	}
-
-	#pragma oss taskwait
 
 	t1 = timer_ticks();
 	fprintf(stderr, "\nSimulation ended.\n\n");
