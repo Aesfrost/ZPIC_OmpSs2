@@ -1,10 +1,10 @@
 # PGI options
-CC = pgimcc
-CFLAGS = --ompss-2 -O3
+#CC = pgimcc
+#CFLAGS = --ompss-2 -O3
 
 # GCC options
-#CC = mcc
-#CFLAGS = --ompss-2 -O3 -std=c99
+CC = mcc
+CFLAGS = --ompss-2 -O3 -std=c99
 
 INCLUDES = -I/home/nicolas/ompss-2/include/
 LDFLAGS = -lm
