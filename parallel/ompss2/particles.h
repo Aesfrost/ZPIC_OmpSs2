@@ -13,6 +13,7 @@
 #define __PARTICLES__
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #include "zpic.h"
 #include "emf.h"
@@ -20,13 +21,15 @@
 
 #define MAX_SPNAME_LEN 32
 
+#define LTRIM(x) (x >= 1.0f) - (x < 0.0f)
+
 typedef struct {
 	int ix, iy;
 	t_part_data x, y;
 	t_part_data ux, uy, uz;
 
 	// Mark the particle as invalid (the particle exited the region)
-	bool safe_to_delete;
+	bool invalid;
 
 } t_part;
 
@@ -46,7 +49,6 @@ typedef struct {
 	t_part *data;
 	int size;
 	int size_max;
-
 } t_particle_vector;
 
 typedef struct {
@@ -54,7 +56,7 @@ typedef struct {
 
 	// Particle data buffer
 	t_particle_vector main_vector;
-	t_particle_vector temp_buffer[2];    // Temporary buffer for incoming particles
+	t_particle_vector incoming_part[2];    // Temporary buffer for incoming particles
 
 	// mass over charge ratio
 	t_part_data m_q;
@@ -89,13 +91,19 @@ typedef struct {
 	// Moving window
 	bool moving_window;
 	int n_move;
+
+	// Outgoing particles
+	t_particle_vector *outgoing_part[2];
+
 } t_species;
 
 // Setup
 void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc[],
 		const t_part_data ufl[], const t_part_data uth[], const int nx[], t_part_data box[],
 		const float dt, t_density *density);
-void spec_inject_particles(t_species *spec, const int range[][2]);
+void spec_inject_particles(t_particle_vector *part_vector, const int range[][2], const int ppc[2],
+		const t_density *part_density, const t_part_data dx[2], const int n_move,
+		const t_part_data ufl[3], const t_part_data uth[3]);
 void spec_delete(t_species *spec);
 
 // Report - General
@@ -106,18 +114,14 @@ double spec_perf(void);
 void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const size_t type_size);
 
 // CPU Tasks
-#pragma oss task in(emf->E_buf[0; emf->total_size]) in(emf->B_buf[0; emf->total_size]) \
-inout(spec->main_vector) inout(current->J_buf[0; current->total_size]) \
-label(Spec Advance)
-void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[2]);
+#pragma oss task label("Spec Advance") \
+	in(emf->E_buf[0; emf->total_size]) in(emf->B_buf[0; emf->total_size]) \
+	inout(spec->main_vector) inout(current->J_buf[0; current->total_size]) \
+	out(*spec->outgoing_part[0]) out(*spec->outgoing_part[1]) priority(5)
+void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const int limits_y[2]);
 
-#pragma oss task inout(spec->main_vector) out(lower_spec->temp_buffer[1]) \
-out(upper_spec->temp_buffer[0]) label(Spec PP)
-void spec_post_processing(t_species *spec, t_species *upper_spec, t_species *lower_spec,
-		int limits_y[2]);
-
-#pragma oss task in(spec->temp_buffer[0:1]) inout(spec->main_vector) label(Spec Update)
-void spec_update_main_vector(t_species *spec);
+#pragma oss task in(spec->incoming_part[0:1]) inout(spec->main_vector) label(Spec Update)
+void spec_merge_vectors(t_species *spec);
 
 /*********************************************************************************************
  Diagnostics

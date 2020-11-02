@@ -70,10 +70,20 @@ void sim_new(t_simulation *sim, int nx[2], float box[2], float dt, float tmax, i
 	sim->box[1] = box[1];
 	strncpy(sim->name, name, 64);
 
+	// Check time step
+	float dx[] = {box[0] / nx[0], box[1] / nx[1]};
+	float cour = sqrtf(1.0f / (1.0f / (dx[0] * dx[0]) + 1.0f / (dx[1] * dx[1])));
+	if (dt >= cour)
+	{
+		fprintf(stderr, "Invalid timestep, courant condition violation, dtmax = %f \n", cour);
+		exit(-1);
+	}
+
 	// Inject particles in the simulation that will be distributed to all the regions
 	const int range[][2] = {{0, nx[0]}, {0, nx[1]}};
 	for (int n = 0; n < n_species; ++n)
-		spec_inject_particles(&species[n], range);
+		spec_inject_particles(&species[n].main_vector, range, species[n].ppc, &species[n].density,
+				species[n].dx, species[n].n_move, species[n].ufl, species[n].uth);
 
 	// Initialise the regions (recursively)
 	sim->first_region = malloc(sizeof(t_region));
@@ -100,15 +110,6 @@ void sim_new(t_simulation *sim, int nx[2], float box[2], float dt, float tmax, i
 			spec_calculate_energy(&region->species[n]);
 		region = region->next;
 	} while (region->id != 0);
-
-	// Check time step
-	float dx[] = {box[0] / nx[0], box[1] / nx[1]};
-	float cour = sqrtf(1.0f / (1.0f / (dx[0] * dx[0]) + 1.0f / (dx[1] * dx[1])));
-	if (dt >= cour)
-	{
-		fprintf(stderr, "Invalid timestep, courant condition violation, dtmax = %f \n", cour);
-		exit(-1);
-	}
 
 	// Create output directory
 	sim_create_dir(sim);

@@ -99,7 +99,8 @@ void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag,
 
 // CPU Tasks
 #pragma oss task in(current->J_buf[0; current->total_size]) \
-inout(emf->E_buf[0; emf->total_size]) inout(emf->B_buf[0; emf->total_size]) \
+inout(emf->E_buf[0; emf->total_size]) \
+inout(emf->B_buf[0; emf->total_size]) \
 label(EMF Advance)
 void emf_advance(t_emf *emf, const t_current *current);
 

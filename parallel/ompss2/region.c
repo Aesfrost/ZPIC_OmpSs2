@@ -130,6 +130,12 @@ void region_link_adj_regions(t_region *region)
 {
 	current_overlap_zone(&region->local_current, &region->prev->local_current);
 	emf_overlap_zone(&region->local_emf, &region->prev->local_emf);
+
+	for (int n = 0; n < region->n_species; n++)
+	{
+		region->species[n].outgoing_part[0] = &region->prev->species[n].incoming_part[1];
+		region->species[n].outgoing_part[1] = &region->next->species[n].incoming_part[0];
+	}
 }
 
 // Set moving window
@@ -145,8 +151,8 @@ void region_set_moving_window(t_region *region)
 // Add a laser to all the regions
 void region_add_laser(t_region *region, t_emf_laser *laser)
 {
-	if (region->id != 0) while (region->id != 0)
-		region = region->next;
+	if (region->id != 0)
+		while (region->id != 0) region = region->next;
 
 	t_region *p = region;
 	do
@@ -158,7 +164,7 @@ void region_add_laser(t_region *region, t_emf_laser *laser)
 	p = region;
 	do
 	{
-		emf_update_gc_y(&p->local_emf);
+		if (p->id != 0) emf_update_gc_y(&p->local_emf);
 		p = p->next;
 	} while (p->id != 0);
 
@@ -168,6 +174,7 @@ void region_add_laser(t_region *region, t_emf_laser *laser)
 	do
 	{
 		div_corr_x(&p->local_emf);
+		emf_update_gc_x(&p->local_emf);
 		p = p->next;
 	} while (p->id != 0);
 
@@ -175,10 +182,10 @@ void region_add_laser(t_region *region, t_emf_laser *laser)
 	do
 	{
 		emf_update_gc_y(&p->local_emf);
-		#pragma oss taskwait
-		emf_update_gc_x(&p->local_emf);
 		p = p->next;
 	} while (p->id != 0);
+
+	#pragma oss taskwait
 }
 
 void region_delete(t_region *region)
@@ -201,12 +208,8 @@ void region_spec_advance(t_region *region)
 	current_zero(&region->local_current);
 
 	for (int i = 0; i < region->n_species; i++)
-	{
 		spec_advance(&region->species[i], &region->local_emf, &region->local_current,
 				region->limits_y);
-		spec_post_processing(&region->species[i], &region->next->species[i],
-				&region->prev->species[i], region->limits_y);
-	}
 
 	if (region->next->id != 0) region_spec_advance(region->next);
 }
@@ -215,7 +218,7 @@ void region_spec_advance(t_region *region)
 void region_spec_update(t_region *region)
 {
 	for (int i = 0; i < region->n_species; i++)
-		spec_update_main_vector(&region->species[i]);
+		spec_merge_vectors(&region->species[i]);
 
 	if (region->next->id != 0) region_spec_update(region->next);
 }
