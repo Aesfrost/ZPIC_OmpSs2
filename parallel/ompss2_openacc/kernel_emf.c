@@ -20,17 +20,18 @@ void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
 }
 #endif
 
-#pragma oss task device(openacc) inout(E[0; total_size]) inout(B[0; total_size]) \
+#pragma oss task device(openacc) inout(E[-gc[0][0] - gc[1][0] * nrow; total_size]) \
+	inout(B[-gc[0][0] - gc[1][0] * nrow; total_size]) \
 	label("EMF Advance (GPU, Yee B)")
 void yee_b_openacc(t_vfld *restrict B, const t_vfld *restrict E, const t_fld dt_dx,
-        const t_fld dt_dy, const int nrow, const int nx[2], const int total_size, const int device)
+        const t_fld dt_dy, const int nrow, const int nx[2], const int gc[2][2], const int total_size, const int device)
 {
 #ifdef MANUAL_GPU_SETUP
 	acc_set_device_num(device, DEVICE_TYPE);
 #endif
 
 	// Canonical implementation
-	#pragma acc parallel loop independent tile(4, 4)
+	#pragma acc parallel loop independent tile(16, 16)
 	for (int j = -1; j <= nx[1]; j++)
 	{
 		for (int i = -1; i <= nx[0]; i++)
@@ -43,11 +44,12 @@ void yee_b_openacc(t_vfld *restrict B, const t_vfld *restrict E, const t_fld dt_
 	}
 }
 
-#pragma oss task device(openacc) inout(E[0; total_size]) inout(B[0; total_size]) \
-	in(J[0; total_size]) label("EMF Advance (GPU, Yee E)")
+#pragma oss task device(openacc) inout(E[-gc[0][0] - gc[1][0] * nrow_e; total_size]) \
+	inout(B[-gc[0][0] - gc[1][0] * nrow_e; total_size]) \
+	in(J[-gc[0][0] - gc[1][0] * nrow_j; total_size]) label("EMF Advance (GPU, Yee E)")
 void yee_e_openacc(const t_vfld *restrict B, t_vfld *restrict E, const t_vfld *restrict J,
         const const t_fld dt_dx, const t_fld dt_dy, const float dt, const int nrow_e,
-        const int nrow_j, const int nx[2], const int total_size, const int device)
+        const int nrow_j, const int nx[2], const int gc[2][2], const int total_size, const int device)
 {
 
 #ifdef MANUAL_GPU_SETUP
@@ -55,7 +57,7 @@ void yee_e_openacc(const t_vfld *restrict B, t_vfld *restrict E, const t_vfld *r
 #endif
 
 	// Canonical implementation
-	#pragma acc parallel loop independent tile(4, 4)
+	#pragma acc parallel loop independent tile(16, 16)
 	for (int j = 0; j <= nx[1] + 1; j++)
 	{
 		for (int i = 0; i <= nx[0] + 1; i++)
@@ -71,9 +73,9 @@ void yee_e_openacc(const t_vfld *restrict B, t_vfld *restrict E, const t_vfld *r
 }
 
 // Update the ghost cells in the X direction (OpenAcc)
-#pragma oss task device(openacc) inout(E[0; total_size]) inout(B[0; total_size]) \
-	label("EMF Advance (GPU, GC X)")
-void emf_gc_x_openacc(t_vfld *restrict E, t_vfld *restrict B, const int nrow, const int nx[2],
+#pragma oss task device(openacc) inout(E[-gc[0][0] - gc[1][0] * nrow; total_size]) \
+	inout(B[-gc[0][0] - gc[1][0] * nrow; total_size]) label("EMF Advance (GPU, GC X)")
+void emf_update_gc_x_openacc(t_vfld *restrict E, t_vfld *restrict B, const int nrow, const int nx[2],
         const int gc[2][2], const int total_size, int *iter, const int device)
 {
 
@@ -177,7 +179,7 @@ void emf_move_window_openacc(t_vfld *restrict E, t_vfld *restrict B, int *n_move
 	#endif
 
 		// Shift data left 1 cell and zero rightmost cells
-		#pragma acc parallel loop gang
+		#pragma acc parallel loop gang vector_length(384)
 		for (int j = 0; j < gc[1][0] + nx[1] + gc[1][1]; j++)
 		{
 			t_vfld B_temp[LOCAL_BUFFER_SIZE];
@@ -230,10 +232,10 @@ void emf_advance_openacc(t_emf *emf, const t_current *current, const int device)
 #endif
 
 	// Advance EM field using Yee algorithm modified for having E and B time centered
-	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, emf->total_size, device);
-	yee_e_openacc(emf->B, emf->E, current->J, dt_dx, dt_dy, dt, emf->nrow, current->nrow, emf->nx,
+	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, emf->gc, emf->total_size, device);
+	yee_e_openacc(emf->B, emf->E, current->J, dt_dx, dt_dy, dt, emf->nrow, current->nrow, emf->nx, emf->gc,
 	        emf->total_size, device);
-	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, emf->total_size, device);
+	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, emf->gc, emf->total_size, device);
 
 	if(emf->moving_window)
 	{
@@ -243,9 +245,8 @@ void emf_advance_openacc(t_emf *emf, const t_current *current, const int device)
 	} else
 	{
 		// Update guard cells with new values
-		emf_gc_x_openacc(emf->E, emf->B, emf->nrow, emf->nx, emf->gc, emf->total_size,
+		emf_update_gc_x_openacc(emf->E, emf->B, emf->nrow, emf->nx, emf->gc, emf->total_size,
 		        &emf->iter, device);
 	}
-
 }
 

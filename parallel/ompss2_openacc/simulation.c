@@ -80,7 +80,7 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	}
 
 	// Inject particles in the simulation that will be distributed to all the regions
-	const int range[][2] = { { 0, nx[0] }, { 0, nx[1] } };
+	const int range[][2] = {{0, nx[0]}, {0, nx[1]}};
 	for (int n = 0; n < n_species; ++n)
 		spec_inject_particles(&species[n].main_vector, range, species[n].ppc, &species[n].density,
 				species[n].dx, species[n].n_move, species[n].ufl, species[n].uth);

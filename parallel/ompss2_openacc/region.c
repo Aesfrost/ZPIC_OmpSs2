@@ -264,11 +264,8 @@ void region_spec_advance(t_region *region)
 		current_zero(&region->local_current);
 
 		for (int i = 0; i < region->n_species; i++)
-		{
 			spec_advance(&region->species[i], &region->local_emf, &region->local_current,
 					region->limits_y);
-			spec_post_processing(&region->species[i], region->limits_y);
-		}
 	}
 
 	// Advance iteration count

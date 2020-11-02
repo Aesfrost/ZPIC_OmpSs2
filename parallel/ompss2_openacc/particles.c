@@ -271,7 +271,6 @@ void spec_set_x(t_particle_vector *vector, const int range[][2], const int ppc[2
 	}
 
 	vector->size = ip;
-
 	free(poscell);
 }
 
@@ -681,25 +680,23 @@ void interpolate_fld(const t_vfld *restrict const E, const t_vfld *restrict cons
 // Particle advance (CPU)
 void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const int limits_y[2])
 {
-	int i;
-	t_part_data qnx, qny, qvz;
+	const int nx0 = spec->nx[0];
+	const int nx1 = spec->nx[1];
 
 	const t_part_data tem = 0.5 * spec->dt / spec->m_q;
 	const t_part_data dt_dx = spec->dt / spec->dx[0];
 	const t_part_data dt_dy = spec->dt / spec->dx[1];
 
 	// Auxiliary values for current deposition
-	qnx = spec->q * spec->dx[0] / spec->dt;
-	qny = spec->q * spec->dx[1] / spec->dt;
+	const t_part_data qnx = spec->q * spec->dx[0] / spec->dt;
+	const t_part_data qny = spec->q * spec->dx[1] / spec->dt;
 
 	// Advance internal iteration number
 	spec->iter += 1;
 
 	// Advance particles
-	for (i = 0; i < spec->main_vector.size; i++)
+	for (int i = 0; i < spec->main_vector.size; i++)
 	{
-		if(spec->main_vector.invalid[i]) continue;
-
 		t_vfld Ep, Bp;
 		t_part_data utx, uty, utz;
 		t_part_data ux, uy, uz, rg;
@@ -776,7 +773,7 @@ void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const i
 		x1 -= di;
 		y1 -= dj;
 
-		qvz = spec->q * uz * rg;
+		t_part_data qvz = spec->q * uz * rg;
 
 		dep_current_zamb(spec->main_vector.ix[i], spec->main_vector.iy[i] - limits_y[0],
 				di, dj, spec->main_vector.x[i], spec->main_vector.y[i], dx, dy, qnx, qny,
@@ -788,15 +785,9 @@ void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const i
 		spec->main_vector.ix[i] += di;
 		spec->main_vector.iy[i] += dj;
 	}
-}
 
-// Particle post processing (Transfer particles between regions and move the simulation
-// window, if applicable). CPU Task
-void spec_post_processing(t_species *spec, const int limits_y[2])
-{
-	const int nx0 = spec->nx[0];
-	const int nx1 = spec->nx[1];
-
+	// Particle post processing (Transfer particles between regions and move the simulation
+	// window, if applicable)
 	for(int i = 0; i < spec->main_vector.size; i++)
 	{
 		//Check if the particle is in the correct region

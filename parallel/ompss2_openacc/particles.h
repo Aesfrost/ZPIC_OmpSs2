@@ -130,32 +130,28 @@ double spec_perf(void);
 // CPU Tasks
 #pragma oss task label("Spec Advance") \
 	in(emf->E_buf[0; emf->total_size]) in(emf->B_buf[0; emf->total_size]) \
-	inout(spec->main_vector) inout(current->J_buf[0; current->total_size]) priority(5)
+	inout(spec->main_vector) inout(current->J_buf[0; current->total_size]) \
+	out(*spec->outgoing_part[0]) out(*spec->outgoing_part[1]) priority(5)
 void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const int limits_y[2]);
-
-#pragma oss task inout(spec->main_vector) out(*spec->outgoing_part[0]) \
-	out(*spec->outgoing_part[1]) label("Spec PostProcessing")
-void spec_post_processing(t_species *spec, const int limits_y[2]);
 
 #pragma oss task in(spec->incoming_part[0:1]) inout(spec->main_vector) label("Spec Update")
 void spec_update_main_vector(t_species *spec);
 
 // OpenAcc Tasks
-#pragma oss task label("Spec Kernel (GPU)") device(openacc) \
+#pragma oss task label("Spec Kernel (GPU)") \
 	in(emf->E_buf[0; emf->total_size]) in(emf->B_buf[0; emf->total_size]) \
-	inout(current->J_buf[0; current->total_size]) inout(spec->main_vector)
+	inout(current->J_buf[0; current->total_size]) inout(spec->main_vector) device(openacc)
 void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict const emf,
 		t_current *restrict const current, const int limits_y[2], const int device);
 
 #pragma oss task label("Spec Check Boundaries (GPU)") \
-	inout(spec->main_vector) out(*spec->outgoing_part[0]) \
-	out(*spec->outgoing_part[1]) device(openacc)
+	inout(spec->main_vector) out(*spec->outgoing_part[0]) out(*spec->outgoing_part[1]) device(openacc)
 void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2], const int device);
 
 #pragma oss task label("Spec Move Window (GPU)") inout(spec->main_vector) device(openacc)
 void spec_move_window_openacc(t_species *restrict spec, const int limits_y[2], const int device);
 
-#pragma oss task label("Spec Partial Sort (GPU)") in(spec->incoming_part[0:1]) inout(spec->main_vector) //device(openacc)
+#pragma oss task label("Spec Partial Sort (GPU)") in(spec->incoming_part[0:1]) inout(spec->main_vector)
 void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device);
 
 // Prefetch

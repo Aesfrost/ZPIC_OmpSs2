@@ -154,7 +154,7 @@ void current_smooth_x_openacc(t_current *current, const int device)
 	acc_set_device_num(device, DEVICE_TYPE);
 #endif
 
-#ifdef ENABLE_PREFETCHW>
+#ifdef ENABLE_PREFETCH
 	current_prefetch_openacc(current->J_buf, size, device);
 #endif
 
@@ -165,7 +165,7 @@ void current_smooth_x_openacc(t_current *current, const int device)
 	for (int i = 0; i < current->smooth.xlevel; i++)
 	{
 		// Apply the filter in the x direction
-		#pragma acc parallel loop gang
+		#pragma acc parallel loop gang vector_length(384)
 		for (int j = 0; j < current->nx[1]; ++j)
 		{
 			t_vfld J_temp[LOCAL_BUFFER_SIZE + 2];
@@ -218,7 +218,7 @@ void current_smooth_x_openacc(t_current *current, const int device)
 		sb = b / total;
 
 		// Apply the filter in the x direction
-		#pragma acc parallel loop gang
+		#pragma acc parallel loop gang vector_length(384)
 		for (int j = 0; j < current->nx[1]; ++j)
 		{
 			t_vfld J_temp[LOCAL_BUFFER_SIZE + 2];

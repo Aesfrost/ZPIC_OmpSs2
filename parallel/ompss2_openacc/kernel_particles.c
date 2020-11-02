@@ -63,6 +63,8 @@ void add_block_sum(int *restrict vector, int *restrict block_sum, const int num_
 		for (int i = 0; i < block_size; i++)
 			if (i + begin_idx < vector_size) vector[i + begin_idx] += block_sum[block_id];
 	}
+
+	#pragma acc wait
 }
 
 // Prefix Sum (Exclusive) - 1 warp per thread block
@@ -123,6 +125,8 @@ void prefix_sum_min(int *restrict vector, int *restrict block_sum, const int num
 		for (int i = 0; i < MIN_WARP_SIZE; i++)
 			if (i + begin_idx < size) vector[i + begin_idx] = local_buffer[i];
 	}
+
+	#pragma acc wait
 }
 
 // Prefix Sum (Exclusive) - Multiple warps per thread block
@@ -184,6 +188,8 @@ void prefix_sum_full(int *restrict vector, int *restrict block_sum, const int nu
 		for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)
 			if (i + begin_idx < size) vector[i + begin_idx] = local_buffer[i];
 	}
+
+	#pragma acc wait
 }
 
 // Prefix/Scan Sum (Exclusive)
@@ -222,7 +228,7 @@ void prefix_sum_openacc(int *restrict vector, const int size, const int device)
 		}
 	}
 
-	#pragma oss taskwait on(block_sum[0; num_blocks])
+	#pragma oss taskwait //on(block_sum[0; num_blocks])
 	free(block_sum);
 }
 
@@ -258,6 +264,8 @@ void spec_move_vector_int(int *restrict vector, int *restrict temp, int *restric
 	#pragma acc parallel loop
 	for (int i = 0; i < move_size; i++)
 		if (source_idx[i] >= 0) vector[target_idx[i]] = temp[i];
+
+	#pragma acc wait
 }
 
 // Sort vector based on the new_pos array
@@ -293,6 +301,8 @@ void spec_move_vector_float(float *restrict vector, float *restrict temp, int *r
 	#pragma acc parallel loop
 	for (int i = 0; i < move_size; i++)
 		if (source_idx[i] >= 0) vector[target_idx[i]] = temp[i];
+
+	#pragma acc wait
 }
 
 /*********************************************************************************************
@@ -760,6 +770,8 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 
 	// Advance internal iteration number
 	spec->iter++;
+
+	#pragma acc wait
 }
 
 // Particle advance (OpenAcc). Default implementation
@@ -884,6 +896,8 @@ void spec_move_window_openacc(t_species *restrict spec, const int limits_y[2], c
 			spec_inject_particles(&spec->incoming_part[2], range, spec->ppc, &spec->density,
 					spec->dx, spec->n_move, spec->ufl, spec->uth);
 		}else spec->incoming_part[2].size = np_inj; // Reuse the temporary vector (THIS ONLY WORKS IF THE INJECTED PARTICLES HAVE NO MOMENTUM)
+
+		#pragma acc wait
 	}
 }
 
@@ -1025,6 +1039,8 @@ void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2], const
 			}
 		}
 	}
+
+	#pragma acc wait
 }
 
 /*********************************************************************************************
@@ -1206,6 +1222,8 @@ void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_of
 	for (int i = 0; i <= n_tiles; i++)
 		if(i < n_tiles) tile_offset[i] = np_per_tile[i];
 		else tile_offset[i] = 0;
+
+	#pragma acc wait
 }
 
 // Calculate an histogram for the particles moving between tiles
@@ -1241,6 +1259,8 @@ void histogram_moving_particles(t_particle_vector *part_vector, int *restrict ti
 
 		np_leaving[tile_idx] = leaving_count;
 	}
+
+	#pragma acc wait
 }
 
 // Identify the particles in the wrong tile and then generate a sorted list for them
@@ -1379,6 +1399,8 @@ void calculate_sorted_idx(t_particle_vector *part_vector, int *restrict tile_off
 			}
 		}
 	}
+
+	#pragma acc wait
 }
 
 // Merge the temporary vectors for the incoming particle into the main vector
@@ -1424,6 +1446,8 @@ void merge_particles_buffers(t_particle_vector *part_vector, t_particle_vector *
 			incoming_part[n].size = 0;
 		}
 	}
+
+	#pragma acc wait
 }
 
 // Reset the invalid mark from the particles
@@ -1439,6 +1463,8 @@ void reset_invalid_part(bool *restrict invalid_mark, int *restrict source_idx,
 	#pragma acc parallel loop
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) invalid_mark[target_idx[i]] = false;
+
+	#pragma acc wait
 }
 
 #pragma oss task label("Sort (GPU, Sort Particles)") inout(*part_vector) inout(incoming_part[0:1]) \
@@ -1477,15 +1503,16 @@ void spec_sort_particles(t_particle_vector *part_vector, t_particle_vector incom
 			n_tiles_x, n_tiles, offset_region, sorting_size, device);
 
 	// Free temporary vectors
-	#pragma oss task in(source_idx[0; sorting_size]) in(target_idx[0; sorting_size]) \
-	in(counter[0; n_tiles]) in(temp_float[0; sorting_size]) in(temp_int[0; sorting_size])
-	{
+//	#pragma oss task in(source_idx[0; sorting_size]) in(target_idx[0; sorting_size]) \
+//	in(counter[0; n_tiles]) in(temp_float[0; sorting_size]) in(temp_int[0; sorting_size])
+//	{
+		#pragma oss taskwait
 		free(temp_float);
 		free(temp_int);
 		free(counter);
 		free(target_idx);
 		free(source_idx);
-	}
+//	}
 }
 
 void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
@@ -1520,7 +1547,8 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 	        spec->n_tiles_y, spec->n_tiles_x, limits_y[0], device);
 	prefix_sum_openacc(spec->tile_offset, n_tiles + 1, device);
 
-	#pragma oss task inout(spec->tile_offset[0; n_tiles])
+//	#pragma oss task inout(spec->tile_offset[0; n_tiles])
+//	#pragma oss taskwait
 	free(np_per_tile);
 
 	// Calculate the offset for the moving particles between tiles
