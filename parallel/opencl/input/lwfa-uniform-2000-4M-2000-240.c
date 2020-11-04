@@ -9,7 +9,7 @@
 
 #include "../simulation.h"
 
-void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_regions)
+void sim_init(t_simulation *sim)
 {
 
 	// Time step
@@ -17,33 +17,33 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 	float tmax = 28;  //20.314;
 
 	// Simulation box
-	int nx[2] = {2000, 256};
-	float box[2] = {40.0, 51.2};
+	int nx[2] = {2000, 240};
+	float box[2] = {40.0, 48};
 
 	// Diagnostic frequency
-	int ndump = 2000;
+	int ndump = 500;
 
 	// Initialize particles
 	const int n_species = 1;
 
 	// Use 4x2 particles per cell
-	int ppc[] = { 4, 2 };
+	int ppc[] = {4, 2};
 
-	int limits_y[2] = {0, nx[1]};
+	t_part_data ufl[3] = {0};
+	t_part_data uth[3] = {0};
 
 	// Density profile
-	t_density density = {.type = STEP, .start = 20.0};
+	t_density density = {.type = UNIFORM};
 
 	t_species *species = (t_species*) malloc(n_species * sizeof(t_species));
-	spec_new(&species[0], "electrons", -1.0, ppc, NULL, NULL, nx, box, dt, &density, nx[1]);
+	spec_new(&species[0], "electrons", -1.0, ppc, ufl, uth, nx, box, dt, &density);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa", n_regions, gpu_percentage,
-			n_gpu_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa-uniform-2000-4M-2000-240");
 
 	// Add laser pulse (this must come after sim_new)
-	t_emf_laser laser = {.type = GAUSSIAN, .start = 17.0, .fwhm = 2.0, .a0 = 2.0, .omega0 = 10.0,
-			.W0 = 4.0, .focus = 20.0, .axis = 12.8, .polarization = M_PI_2};
+	t_emf_laser laser = {.type = GAUSSIAN, .start = 17.0, .fwhm = 2.0, .a0 = 2.0, .omega0 = 10.0, .W0 = 4.0,
+			.focus = 20.0, .axis = 12.8, .polarization = M_PI_2};
 	sim_add_laser(sim, &laser);
 
 	// Set moving window (this must come after sim_new)
@@ -53,8 +53,6 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 	t_smooth smooth = {.xtype = COMPENSATED, .xlevel = 4};
 
 	sim_set_smooth(sim, &smooth);
-
-	free(species);
 }
 
 void sim_report(t_simulation *sim)

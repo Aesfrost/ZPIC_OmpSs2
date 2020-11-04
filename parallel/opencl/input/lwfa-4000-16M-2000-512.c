@@ -20,7 +20,7 @@ void sim_init(t_simulation *sim)
 	float box[2] = {20.0, 25.6};
 
 	// Diagnostic frequency
-	int ndump = 500;
+	int ndump = 4000;
 
 	// Initialize particles
 	const int n_species = 1;

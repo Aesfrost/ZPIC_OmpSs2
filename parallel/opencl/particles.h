@@ -16,15 +16,9 @@
 #include "emf.h"
 #include "current.h"
 
-#define TILE_SIZE 16
+#define TILE_SIZE 20
 #define MAX_SPNAME_LEN 32
 #define MAX_LEAVING_PART 0.25 // Percentage of the total number of particles
-
-//typedef struct {
-//	int ix, iy;
-//	t_part_data x, y;
-//	t_part_data ux, uy, uz;
-//} t_part;
 
 enum density_type {
 	UNIFORM, STEP, SLAB
@@ -50,12 +44,7 @@ typedef struct {
 	char name[MAX_SPNAME_LEN];
 
 	// Particle data buffer
-//	t_part *part;
-//	int np;
-//	int np_max;
-
 	t_part_vector part_vector;
-
 	t_part_vector incoming_part;
 
 	// mass over charge ratio
@@ -99,6 +88,7 @@ typedef struct {
 	t_part_vector temp_part;
 	int *sort_counter;
 	int *target_idx;
+	int *temp_offset;
 
 } t_species;
 
@@ -116,19 +106,22 @@ double spec_perf(void);
 
 void spec_sort(t_part_vector *part_vector, t_part_vector *temp_part, t_part_vector *new_part,
         int *restrict tile_offset, int *restrict np_per_tile, int *restrict sort_counter,
-        int *target_idx, const cl_int2 n_tiles, const int nx[2], const int moving_window,
-        const int shift, const int ppc[2]);
+        int *target_idx, int *restrict temp_offset, const cl_int2 n_tiles, const int nx[2],
+        const int moving_window, const int shift, const int ppc[2]);
 
 // OpenCL Kernels
-#pragma omp target device(opencl) copy_deps ndrange(2, n_tiles.x * 128, n_tiles.y, 128, 1) file(kernel_gpu.cl)
+
+#ifdef TARGET_GPU
+#pragma omp target device(opencl) copy_deps ndrange(2, n_tiles.x * 512, n_tiles.y, 512, 1) file(kernel_gpu.cl)
 #pragma omp task in(E_buf[0; field_size]) in(B_buf[0; field_size]) inout(part_cell_idx[0; np_max]) \
 	inout(part_positions[0; np_max]) inout(part_velocities[0; np_max]) inout(J_buf[0; field_size]) \
-	in(tile_offset[0: n_tiles.x * n_tiles.y]) inout(np_per_tile[0: n_tiles.x * n_tiles.y])
+	in(tile_offset[0: n_tiles.x * n_tiles.y]) inout(np_per_tile[0: n_tiles.x * n_tiles.y]) \
+	inout(leaving_part[0; n_tiles.x * n_tiles.y])
 void spec_advance_opencl(cl_int2 *restrict part_cell_idx, cl_float2 *restrict part_positions,
         cl_float3 *restrict part_velocities, const int *restrict tile_offset,
-        int *restrict np_per_tile, const int np_max, const cl_float3 *restrict E_buf,
-        const cl_float3 *restrict B_buf, cl_float3 *restrict J_buf, const int nrow,
-        const int field_size, const t_part_data tem, const t_part_data dt_dx,
+        int *restrict np_per_tile, int *restrict leaving_part, const int np_max,
+        const cl_float3 *restrict E_buf, const cl_float3 *restrict B_buf, cl_float3 *restrict J_buf,
+        const int nrow, const int field_size, const t_part_data tem, const t_part_data dt_dx,
         const t_part_data dt_dy, const t_part_data qnx, const t_part_data qny, const t_part_data q,
         const int nx0, const int nx1, const cl_int2 n_tiles, const int moving_window,
         const int shift);
@@ -137,19 +130,20 @@ void spec_advance_opencl(cl_int2 *restrict part_cell_idx, cl_float2 *restrict pa
 #pragma omp task in(part_cell_idx[0; np_max]) in(part_positions[0; np_max]) in(part_velocities[0; np_max]) \
 		out(temp_cell_idx[0; sort_size]) out(temp_positions[0; sort_size]) \
 		out(temp_velocities[0; sort_size]) out(target_idx[0; sort_size]) \
-		inout(counter[0; n_tiles.x * n_tiles.y]) in(tile_offset[0: n_tiles.x * n_tiles.y])
+		inout(counter[0; n_tiles.x * n_tiles.y]) in(tile_offset[0: n_tiles.x * n_tiles.y]) \
+		in(temp_offset[0; n_tiles.x * n_tiles.y])
 void spec_sort_1(const cl_int2 *restrict part_cell_idx, const cl_float2 *restrict part_positions,
         const cl_float3 *restrict part_velocities, cl_int2 *restrict temp_cell_idx,
         cl_float2 *restrict temp_positions, cl_float3 *restrict temp_velocities,
         int *restrict target_idx, int *restrict counter, const int *restrict tile_offset,
-        const cl_int2 n_tiles, const int max_holes_per_tile, const int np, const int np_max,
+        const int *restrict temp_offset, const cl_int2 n_tiles, const int np, const int np_max,
         const int sort_size, const int nx0);
 
 #pragma omp target device(opencl) copy_deps ndrange(1, np_inj, 128) file(kernel_gpu.cl)
 #pragma omp task in(new_cell_idx[0; np_inj]) in(new_positions[0; np_inj]) in(new_velocities[0; np_inj]) \
 		inout(temp_cell_idx[0; np]) inout(temp_positions[0; np]) inout(temp_velocities[0; np]) \
 		inout(counter[0; n_tiles.x * n_tiles.y])
-void spec_sort_1_mw(cl_int2 *restrict temp_cell_idx, cl_float2 *restrict temp_positions,
+void spec_inject_particles_opencl(cl_int2 *restrict temp_cell_idx, cl_float2 *restrict temp_positions,
         cl_float3 *restrict temp_velocities, const cl_int2 *restrict new_cell_idx,
         const cl_float2 *restrict new_positions, const cl_float3 *restrict new_velocities,
         int *restrict counter, const int np, const int np_inj, const cl_int2 n_tiles);
@@ -157,12 +151,64 @@ void spec_sort_1_mw(cl_int2 *restrict temp_cell_idx, cl_float2 *restrict temp_po
 #pragma omp target device(opencl) copy_deps ndrange(1, 128 * n_tiles.x * n_tiles.y, 128) file(kernel_gpu.cl)
 #pragma omp task inout(part_cell_idx[0; np_max]) inout(part_positions[0; np_max]) inout(part_velocities[0; np_max]) \
 		in(temp_cell_idx[0; sort_size]) in(temp_positions[0; sort_size]) in(temp_velocities[0; sort_size]) \
-		in(target_idx[0; sort_size]) in(counter[0; n_tiles.x * n_tiles.y])
+		in(target_idx[0; sort_size]) in(counter[0; n_tiles.x * n_tiles.y]) in(temp_offset[0; n_tiles.x * n_tiles.y])
 void spec_sort_2(cl_int2 *restrict part_cell_idx, cl_float2 *restrict part_positions,
         cl_float3 *restrict part_velocities, const cl_int2 *restrict temp_cell_idx,
         const cl_float2 *restrict temp_positions, const cl_float3 *restrict temp_velocities,
-        const int *restrict target_idx, const int *counter, const cl_int2 n_tiles,
-        const int max_holes_per_tile, const int sort_size, const int np_max);
+        const int *restrict target_idx, const int *counter, const int *restrict temp_offset,
+        const cl_int2 n_tiles, const int sort_size, const int np_max);
+
+#endif
+//#elif TARGET_FPGA
+//#pragma omp target device(opencl) copy_deps ndrange(1, 1, 1) file(kernel_fpga.cl)
+//#pragma omp task in(E_buf[0; field_size]) in(B_buf[0; field_size]) inout(part_cell_idx[0; np_max]) \
+//	inout(part_positions[0; np_max]) inout(part_velocities[0; np_max]) inout(J_buf[0; field_size]) \
+//	in(tile_offset[0: n_tiles.x * n_tiles.y]) inout(np_per_tile[0: n_tiles.x * n_tiles.y]) \
+//	inout(leaving_part[0; n_tiles.x * n_tiles.y])
+//void spec_advance_opencl(cl_int2 *restrict part_cell_idx, cl_float2 *restrict part_positions,
+//        cl_float3 *restrict part_velocities, const int *restrict tile_offset,
+//        int *restrict np_per_tile, int *restrict leaving_part, const int np_max,
+//        const cl_float3 *restrict E_buf, const cl_float3 *restrict B_buf, cl_float3 *restrict J_buf,
+//        const int nrow, const int field_size, const t_part_data tem, const t_part_data dt_dx,
+//        const t_part_data dt_dy, const t_part_data qnx, const t_part_data qny, const t_part_data q,
+//        const int nx0, const int nx1, const cl_int2 n_tiles, const int moving_window,
+//        const int shift);
+
+//#pragma omp target device(opencl) copy_deps ndrange(1, 1, 1) file(kernel_fpga.cl)
+//#pragma omp task in(part_cell_idx[0; np_max]) in(part_positions[0; np_max]) in(part_velocities[0; np_max]) \
+//		out(temp_cell_idx[0; sort_size]) out(temp_positions[0; sort_size]) \
+//		out(temp_velocities[0; sort_size]) out(target_idx[0; sort_size]) \
+//		inout(counter[0; n_tiles.x * n_tiles.y]) in(tile_offset[0: n_tiles.x * n_tiles.y]) \
+//		in(temp_offset[0; n_tiles.x * n_tiles.y])
+//void spec_sort_1(const cl_int2 *restrict part_cell_idx, const cl_float2 *restrict part_positions,
+//        const cl_float3 *restrict part_velocities, cl_int2 *restrict temp_cell_idx,
+//        cl_float2 *restrict temp_positions, cl_float3 *restrict temp_velocities,
+//        int *restrict target_idx, int *restrict counter, const int *restrict tile_offset,
+//        const int *restrict temp_offset, const cl_int2 n_tiles, const int np, const int np_max,
+//        const int sort_size, const int nx0);
+//
+//#pragma omp target device(opencl) copy_deps ndrange(1, 1, 1) file(kernel_fpga.cl)
+//#pragma omp task in(new_cell_idx[0; np_inj]) in(new_positions[0; np_inj]) in(new_velocities[0; np_inj]) \
+//		inout(temp_cell_idx[0; np]) inout(temp_positions[0; np]) inout(temp_velocities[0; np]) \
+//		inout(counter[0; n_tiles.x * n_tiles.y])
+//void spec_inject_particles_opencl(cl_int2 *restrict temp_cell_idx, cl_float2 *restrict temp_positions,
+//        cl_float3 *restrict temp_velocities, const cl_int2 *restrict new_cell_idx,
+//        const cl_float2 *restrict new_positions, const cl_float3 *restrict new_velocities,
+//        int *restrict counter, const int np, const int np_inj, const cl_int2 n_tiles);
+//
+//#pragma omp target device(opencl) copy_deps ndrange(1, 128 * n_tiles.x * n_tiles.y, 128) file(kernel_gpu.cl)
+//#pragma omp task inout(part_cell_idx[0; np_max]) inout(part_positions[0; np_max]) inout(part_velocities[0; np_max]) \
+//		in(temp_cell_idx[0; sort_size]) in(temp_positions[0; sort_size]) in(temp_velocities[0; sort_size]) \
+//		in(target_idx[0; sort_size]) in(counter[0; n_tiles.x * n_tiles.y]) in(temp_offset[0; n_tiles.x * n_tiles.y])
+//void spec_sort_2(cl_int2 *restrict part_cell_idx, cl_float2 *restrict part_positions,
+//        cl_float3 *restrict part_velocities, const cl_int2 *restrict temp_cell_idx,
+//        const cl_float2 *restrict temp_positions, const cl_float3 *restrict temp_velocities,
+//        const int *restrict target_idx, const int *counter, const int *restrict temp_offset,
+//        const cl_int2 n_tiles, const int sort_size, const int np_max);
+
+//#else
+//
+//#endif
 
 /*********************************************************************************************
  Diagnostics

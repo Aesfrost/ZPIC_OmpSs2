@@ -72,8 +72,8 @@ __kernel void spec_sort_1(__global const int2 *restrict part_cell_idx, __global 
 						  __global const float3 *restrict part_velocities, __global int2 *restrict temp_cell_idx, 
 						  __global float2 *restrict temp_positions, __global float3 *restrict temp_velocities,
 						  __global int *restrict target_idx, __global int *restrict counter, 
-						  __global const int *restrict tile_offset, const int2 n_tiles, const int max_holes_per_tile,
-						  const int np, const int np_max, const int sort_size, const int nx0)
+						  __global const int *restrict tile_offset,  __global const int *restrict temp_offset,
+						  const int2 n_tiles, const int np, const int np_max, const int sort_size, const int nx0)
 {
 	const int local_id = get_local_id(0);
 	const int stride = get_local_size(0);
@@ -84,7 +84,7 @@ __kernel void spec_sort_1(__global const int2 *restrict part_cell_idx, __global 
 	const int end = tile_offset[current_tile + 1];
 	
 	__local int offset;
-	if(local_id == 0) offset = current_tile * max_holes_per_tile;
+	if(local_id == 0) offset = temp_offset[current_tile];
 	
 	barrier(CLK_LOCAL_MEM_FENCE);
 	
@@ -124,7 +124,7 @@ __kernel void spec_sort_1(__global const int2 *restrict part_cell_idx, __global 
 	}
 }
 
-__kernel void spec_sort_1_mw(__global int2 *restrict temp_cell_idx, __global float2 *restrict temp_positions, 
+__kernel void spec_inject_particles_opencl(__global int2 *restrict temp_cell_idx, __global float2 *restrict temp_positions, 
 						   __global float3 *restrict temp_velocities, __global const int2 *restrict new_cell_idx, 
 						   __global const float2 *restrict new_positions, __global const float3 *restrict new_velocities,
 						   __global int *restrict counter, const int np, const int np_inj, const int2 n_tiles)
@@ -147,14 +147,15 @@ __kernel void spec_sort_1_mw(__global int2 *restrict temp_cell_idx, __global flo
 __kernel void spec_sort_2(__global int2 *restrict part_cell_idx, __global float2 *restrict part_positions, 
 						  __global float3 *restrict part_velocities, __global const int2 *restrict temp_cell_idx, 
 						  __global const float2 *restrict temp_positions, __global const float3 *restrict temp_velocities,
-						  __global const int *restrict target_idx, __global const int *counter, const int2 n_tiles, 
-						  const int max_holes_per_tile, const int sort_size, const int np_max)
+						  __global const int *restrict target_idx, __global const int *counter, 
+						  __global const int *restrict temp_offset, const int2 n_tiles, const int sort_size, 
+						  const int np_max)
 {
 	const int local_id = get_local_id(0);
 	const int group_id = get_group_id(0);
 	const int stride = get_local_size(0);
 	
-	const int begin = group_id * max_holes_per_tile;
+	const int begin = temp_offset[group_id];
 	const int end = counter[group_id];
 	
 	for(int i = begin + local_id; i < end; i += stride)
@@ -302,6 +303,7 @@ inline void dep_current_opencl(int ix, int iy, int di, int dj, float x0, float y
 	// Deposit virtual particle currents
 	for (int k = 0; k < vnp; k++)
 	{
+		float3 value;
 		float S0x[2], S1x[2], S0y[2], S1y[2];
 		float wl1, wl2;
 		float wp1[2], wp2[2];
@@ -327,8 +329,6 @@ inline void dep_current_opencl(int ix, int iy, int di, int dj, float x0, float y
 		wp2[0] = 0.5f * (S0x[0] + S1x[0]);
 		wp2[1] = 0.5f * (S0x[1] + S1x[1]);
 
-		float3 value;
-		
 		value.x = wl1 * wp1[0];
 		value.y = wl2 * wp2[0];
 		value.z = qvz[k] * (S0x[0] * S0y[0] + S1x[0] * S1y[0] 
@@ -357,7 +357,7 @@ inline void dep_current_opencl(int ix, int iy, int di, int dj, float x0, float y
 
 __kernel void spec_advance_opencl(__global int2 *restrict part_cell_idx, __global float2 *restrict part_positions, 
 								  __global float3 *restrict part_velocities, __global const int *restrict tile_offset,
-								  __global int *restrict np_per_tile, const int np_max,
+								  __global int *restrict np_per_tile, __global int *restrict leaving_part, const int np_max,
 								  __global const float3 *restrict E_buf, __global const float3 *restrict B_buf, 
 								  __global float3 *restrict J_buf, const int nrow, const int field_size, 
 								  const float tem, const float dt_dx, const float dt_dy, const float qnx, 
@@ -511,4 +511,6 @@ __kernel void spec_advance_opencl(__global int2 *restrict part_cell_idx, __globa
 		
 		atomic_add_float3_global(&J_buf[global_idx.x + global_idx.y * nrow], J[local_idx.y][local_idx.x]);
 	}
+	
+	if(local_id == 0) leaving_part[current_tile] = end - begin - local_count[4]; 
 }

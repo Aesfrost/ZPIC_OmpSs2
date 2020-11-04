@@ -24,6 +24,8 @@
 #include "timer.h"
 #include "csv_handler.h"
 
+#define LTRIM(x) (x >= 1.0f) - (x < 0.0f)
+
 static double _spec_time = 0.0;
 static double _spec_npush = 0.0;
 
@@ -60,64 +62,91 @@ void prefix_sum_serial(int *restrict vector, const int size)
 	}
 }
 
-void apply_sorting(t_part_vector *restrict vector, int *restrict source_idx,
-        int *restrict target_idx, const int sort_size)
+#if TARGET_GPU || TARGET_FPGA
+void spec_sort(t_part_vector *part_vector, t_part_vector *temp_part, t_part_vector *new_part,
+        int *restrict tile_offset, int *restrict np_per_tile, int *restrict sort_counter,
+        int *target_idx, int *restrict temp_offset, const cl_int2 n_tiles, const int nx[2],
+        const int moving_window, const int shift, const int ppc[2])
 {
-	t_part_vector temp;
-	temp.cell_idx = malloc(sort_size * sizeof(cl_int2));
-	temp.position = malloc(sort_size * sizeof(cl_float2));
-	temp.velocity = malloc(sort_size * sizeof(cl_float3));
+	const int size = part_vector->np;
+	const int n_tiles_total = n_tiles.x * n_tiles.y;
+	const int max_holes = MAX_LEAVING_PART * part_vector->np_max;
 
-	if (source_idx != NULL)
+	#pragma omp task inout(tile_offset[0: n_tiles_total]) inout(np_per_tile[0: n_tiles_total]) \
+	out(sort_counter[0; n_tiles_total]) inout(temp_offset[0; n_tiles_total])
 	{
-		#pragma omp for schedule(static)
-		for (int i = 0; i < sort_size; i++)
-			if (source_idx[i] >= 0)
-			{
-				temp.cell_idx[i] = vector->cell_idx[source_idx[i]];
-				temp.position[i] = vector->position[source_idx[i]];
-				temp.velocity[i] = vector->velocity[source_idx[i]];
-			}
+		if(moving_window && shift)
+		{
+			const int npc = TILE_SIZE * ppc[0] * ppc[1];
+			for(int i = 0; i < n_tiles.y; i++)
+				np_per_tile[(i + 1) * n_tiles.x - 1] += npc;
+		}
 
-		#pragma omp for schedule(static)
-		for (int i = 0; i < sort_size; i++)
-			if (source_idx[i] >= 0)
-			{
-				vector->cell_idx[target_idx[i]] = temp.cell_idx[i];
-				vector->position[target_idx[i]] = temp.position[i];
-				vector->velocity[target_idx[i]] = temp.velocity[i];
-			}
-	} else
-	{
+		prefix_sum_serial(np_per_tile, n_tiles_total + 1);
+		part_vector->np = np_per_tile[n_tiles_total];
 
-		memcpy(temp.cell_idx, vector->cell_idx, sort_size * sizeof(cl_int2));
-		memcpy(temp.position, vector->position, sort_size * sizeof(cl_float2));
-		memcpy(temp.velocity, vector->velocity, sort_size * sizeof(cl_float3));
+		for(int i = 1; i < n_tiles_total; i++)
+		{
+			int diff = np_per_tile[i] - tile_offset[i];
+			if(diff < 0) temp_offset[i] += -diff;
+			else if(diff > 0) temp_offset[i - 1] += diff;
+		}
 
-		for (int i = 0; i < sort_size; i++)
-			if (target_idx[i] >= 0)
-			{
-				vector->cell_idx[target_idx[i]] = temp.cell_idx[i];
-				vector->position[target_idx[i]] = temp.position[i];
-				vector->velocity[target_idx[i]] = temp.velocity[i];
-			}
+		prefix_sum_serial(temp_offset, n_tiles_total);
+
+		memcpy(sort_counter, temp_offset, n_tiles_total * sizeof(int));
+		memcpy(tile_offset, np_per_tile, (n_tiles_total + 1) * sizeof(int));
+		memset(np_per_tile, 0, (n_tiles_total + 1) * sizeof(int));
 	}
 
-	free(temp.cell_idx);
-	free(temp.position);
-	free(temp.velocity);
+	spec_sort_1(part_vector->cell_idx, part_vector->position, part_vector->velocity,
+	        temp_part->cell_idx, temp_part->position, temp_part->velocity, target_idx, sort_counter,
+	        tile_offset, temp_offset, n_tiles, size, part_vector->np_max, max_holes, nx[0]);
+
+	if (moving_window && shift)
+		spec_inject_particles_opencl(temp_part->cell_idx, temp_part->position, temp_part->velocity,
+				new_part->cell_idx, new_part->position, new_part->velocity,
+				sort_counter, max_holes, new_part->np, n_tiles);
+
+	spec_sort_2(part_vector->cell_idx, part_vector->position, part_vector->velocity,
+	        temp_part->cell_idx, temp_part->position, temp_part->velocity, target_idx, sort_counter,
+	        temp_offset, n_tiles, max_holes, part_vector->np_max);
 }
 
-void spec_sort_cpu(t_part_vector *part_vector, int *restrict tile_offset, int *restrict np_per_tile,
-        const cl_int2 n_tiles, const int nx[2])
-{
-	const int n_tiles_total = n_tiles.x * n_tiles.y;
-	const int max_holes = MAX_LEAVING_PART * part_vector->np;
-	const int max_holes_per_tile = max_holes / n_tiles_total;
-	int *restrict source_idx = malloc(max_holes * sizeof(int));
-	int *restrict target_idx = malloc(max_holes * sizeof(int));
-	int *restrict counter = malloc(n_tiles_total * sizeof(int));
+#else
 
+void spec_sort(t_part_vector *part_vector, t_part_vector *temp_part, t_part_vector *new_part,
+        int *restrict tile_offset, int *restrict np_per_tile, int *restrict sort_counter,
+        int *target_idx, int *restrict temp_offset, const cl_int2 n_tiles, const int nx[2],
+        const int moving_window, const int shift, const int ppc[2])
+{
+	const int size = part_vector->np;
+	const int n_tiles_total = n_tiles.x * n_tiles.y;
+	const int max_holes = MAX_LEAVING_PART * part_vector->np_max;
+
+//	#pragma omp taskwait
+
+	if (moving_window && shift)
+	{
+		const int npc = TILE_SIZE * ppc[0] * ppc[1];
+		for (int i = 0; i < n_tiles.y; i++)
+			np_per_tile[(i + 1) * n_tiles.x - 1] += npc;
+	}
+
+	prefix_sum_serial(np_per_tile, n_tiles_total + 1);
+	part_vector->np = np_per_tile[n_tiles_total];
+
+	for (int i = 1; i < n_tiles_total; i++)
+	{
+		int diff = np_per_tile[i] - tile_offset[i];
+		if (diff < 0) temp_offset[i] += -diff;
+		else if (diff > 0) temp_offset[i - 1] += diff;
+	}
+
+	prefix_sum_serial(temp_offset, n_tiles_total);
+
+	memcpy(sort_counter, temp_offset, n_tiles_total * sizeof(int));
+	memcpy(tile_offset, np_per_tile, (n_tiles_total + 1) * sizeof(int));
 	memset(np_per_tile, 0, (n_tiles_total + 1) * sizeof(int));
 
 	#pragma omp for
@@ -128,44 +157,7 @@ void spec_sort_cpu(t_part_vector *part_vector, int *restrict tile_offset, int *r
 			const int tile_idx = tile_x + tile_y * n_tiles.x;
 			const int begin = tile_offset[tile_idx];
 			const int end = tile_offset[tile_idx + 1];
-
-			for (int k = begin; k < end; k++)
-			{
-				int ix = part_vector->cell_idx[k].x / TILE_SIZE;
-				int iy = part_vector->cell_idx[k].y / TILE_SIZE;
-				int target_tile = ix + iy * n_tiles.x;
-
-				#pragma omp atomic
-				np_per_tile[target_tile]++;
-			}
-		}
-	}
-
-	#pragma omp for
-	for (int i = 0; i < n_tiles_total; i++)
-	{
-		tile_offset[i] = np_per_tile[i];
-		if (i < n_tiles_total) counter[i] = i * max_holes_per_tile;
-	}
-
-	prefix_sum_serial(tile_offset, n_tiles_total + 1);
-
-	#pragma omp for
-	for (int i = 0; i < max_holes; i++)
-	{
-		source_idx[i] = -1;
-		target_idx[i] = -1;
-	}
-
-	#pragma omp for
-	for (int tile_y = 0; tile_y < n_tiles.y; tile_y++)
-	{
-		for (int tile_x = 0; tile_x < n_tiles.x; tile_x++)
-		{
-			const int tile_idx = tile_x + tile_y * n_tiles.x;
-			const int begin = tile_offset[tile_idx];
-			const int end = tile_offset[tile_idx + 1];
-			int offset = tile_idx * max_holes_per_tile;
+			int offset = temp_offset[tile_idx];
 
 			for (int k = begin; k < end; k++)
 			{
@@ -174,72 +166,79 @@ void spec_sort_cpu(t_part_vector *part_vector, int *restrict tile_offset, int *r
 				int target_tile = ix + iy * n_tiles.x;
 				int idx;
 
-				if (target_tile != tile_idx)
+				if (part_vector->cell_idx[k].x < 0 || part_vector->cell_idx[k].x >= nx[0]
+				        || k >= size) target_idx[offset++] = k;
+				else if (target_tile != tile_idx)
 				{
 					#pragma omp atomic
-					idx = counter[target_tile]++;
+					idx = sort_counter[target_tile]++;
 
 					target_idx[offset++] = k;
-					source_idx[idx] = k;
+					temp_part->cell_idx[idx] = part_vector->cell_idx[k];
+					temp_part->position[idx] = part_vector->position[k];
+					temp_part->velocity[idx] = part_vector->velocity[k];
 				}
 			}
 		}
 	}
 
-	apply_sorting(part_vector, source_idx, target_idx, max_holes);
-
-	int count = 0;
-
-	free(source_idx);
-	free(target_idx);
-	free(counter);
-}
-
-void spec_sort(t_part_vector *part_vector, t_part_vector *temp_part, t_part_vector *new_part,
-        int *restrict tile_offset, int *restrict np_per_tile, int *restrict sort_counter,
-        int *target_idx, const cl_int2 n_tiles, const int nx[2], const int moving_window,
-        const int shift, const int ppc[2])
-{
-	const int size = part_vector->np;
-	const int n_tiles_total = n_tiles.x * n_tiles.y;
-	const int max_holes = MAX_LEAVING_PART * part_vector->np_max;
-	const int max_holes_per_tile = max_holes / n_tiles_total;
-
-	#pragma omp task inout(tile_offset[0: n_tiles_total]) inout(np_per_tile[0: n_tiles_total]) \
-	out(sort_counter[0; n_tiles_total])
+	#pragma omp for
+	for (int k = tile_offset[n_tiles_total]; k < size; k++)
 	{
-		if(moving_window && shift)
-		{
-			const int npc = TILE_SIZE * ppc[0] * ppc[1];
-			for(int i = 0; i < n_tiles.y; i++)
-				np_per_tile[(i + 1) * n_tiles.x - 1] += npc;
-		}
+		int ix = part_vector->cell_idx[k].x / TILE_SIZE;
+		int iy = part_vector->cell_idx[k].y / TILE_SIZE;
+		int target_tile = ix + iy * n_tiles.x;
+		int idx;
 
-		for (int i = 0; i < n_tiles_total; i++)
-		{
-			sort_counter[i] = i * max_holes_per_tile;
-			tile_offset[i] = np_per_tile[i];
-		}
+		#pragma omp atomic
+		idx = sort_counter[target_tile]++;
 
-		tile_offset[n_tiles_total] = 0;
-		memset(np_per_tile, 0, (n_tiles_total + 1) * sizeof(int));
-		prefix_sum_serial(tile_offset, n_tiles_total + 1);
-		part_vector->np = tile_offset[n_tiles_total];
+		temp_part->cell_idx[idx] = part_vector->cell_idx[k];
+		temp_part->position[idx] = part_vector->position[k];
+		temp_part->velocity[idx] = part_vector->velocity[k];
 	}
 
-	spec_sort_1(part_vector->cell_idx, part_vector->position, part_vector->velocity,
-	        temp_part->cell_idx, temp_part->position, temp_part->velocity, target_idx, sort_counter,
-	        tile_offset, n_tiles, max_holes_per_tile, size, part_vector->np_max, max_holes, nx[0]);
-
 	if (moving_window && shift)
-		spec_sort_1_mw(temp_part->cell_idx, temp_part->position, temp_part->velocity,
-				new_part->cell_idx, new_part->position, new_part->velocity,
-				sort_counter, max_holes, new_part->np, n_tiles);
+	{
+		#pragma omp for
+		for (int k = 0; k < new_part->np; k++)
+		{
+			int ix = part_vector->cell_idx[k].x / TILE_SIZE;
+			int iy = part_vector->cell_idx[k].y / TILE_SIZE;
+			int target_tile = ix + iy * n_tiles.x;
+			int idx;
 
-	spec_sort_2(part_vector->cell_idx, part_vector->position, part_vector->velocity,
-	        temp_part->cell_idx, temp_part->position, temp_part->velocity, target_idx, sort_counter,
-	        n_tiles, max_holes_per_tile, max_holes, part_vector->np_max);
-}
+			#pragma omp atomic
+			idx = sort_counter[target_tile]++;
+
+			temp_part->cell_idx[idx] = new_part->cell_idx[k];
+			temp_part->position[idx] = new_part->position[k];
+			temp_part->velocity[idx] = new_part->velocity[k];
+		}
+	}
+
+	#pragma omp for
+	for (int tile_y = 0; tile_y < n_tiles.y; tile_y++)
+	{
+		for (int tile_x = 0; tile_x < n_tiles.x; tile_x++)
+		{
+			const int current_tile = tile_x + tile_y * n_tiles.x;
+			const int begin = temp_offset[current_tile];
+			const int end = sort_counter[current_tile];
+
+			for (int i = begin; i < end; i++)
+			{
+				const int target = target_idx[i];
+				part_vector->cell_idx[target] = temp_part->cell_idx[i];
+				part_vector->position[target] = temp_part->position[i];
+				part_vector->velocity[target] = temp_part->velocity[i];
+
+			}
+		}
+	}
+}	
+
+#endif
 
 /*********************************************************************************************
  Initialization
@@ -247,7 +246,7 @@ void spec_sort(t_part_vector *part_vector, t_part_vector *temp_part, t_part_vect
 
 // Set the momentum of the injected particles
 void spec_set_u(cl_float3 *vector, const int start, const int end, const t_part_data ufl[3],
-		const t_part_data uth[3])
+        const t_part_data uth[3])
 {
 	for (int i = start; i < end; i++)
 	{
@@ -259,7 +258,7 @@ void spec_set_u(cl_float3 *vector, const int start, const int end, const t_part_
 
 // Set the position of the injected particles
 void spec_set_x(t_part_vector *vector, const int range[][2], const int ppc[2],
-		const t_density *part_density, const t_part_data dx[2], const int n_move)
+        const t_density *part_density, const t_part_data dx[2], const int n_move)
 {
 	float *poscell;
 	int start, end;
@@ -289,7 +288,7 @@ void spec_set_x(t_part_vector *vector, const int range[][2], const int ppc[2],
 
 			// Get edge position normalized to cell size;
 			start = part_density->start / dx[0] - n_move;
-			if(range[0][0] > start) start = range[0][0];
+			if (range[0][0] > start) start = range[0][0];
 
 			end = range[0][1];
 			break;
@@ -299,8 +298,8 @@ void spec_set_x(t_part_vector *vector, const int range[][2], const int ppc[2],
 			start = part_density->start / dx[0] - n_move;
 			end = part_density->end / dx[0] - n_move;
 
-			if(start < range[0][0]) start = range[0][0];
-			if(end > range[0][1]) end = range[0][1];
+			if (start < range[0][0]) start = range[0][0];
+			if (end > range[0][1]) end = range[0][1];
 			break;
 
 		default:    // Uniform density
@@ -332,8 +331,8 @@ void spec_set_x(t_part_vector *vector, const int range[][2], const int ppc[2],
 
 // Inject the particles in the simulation
 void spec_inject_particles(t_part_vector *part_vector, const int range[][2], const int ppc[2],
-		const t_density *part_density, const t_part_data dx[2], const int n_move,
-		const t_part_data ufl[3], const t_part_data uth[3])
+        const t_density *part_density, const t_part_data dx[2], const int n_move,
+        const t_part_data ufl[3], const t_part_data uth[3])
 {
 	int start = part_vector->np;
 
@@ -385,7 +384,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	spec->energy = 0;
 
 	// Initialize particle buffer
-	spec->part_vector.np_max = nx[0] * (nx[1] + 2) * npc;
+	spec->part_vector.np_max = 1.1 * nx[0] * nx[1] * npc;
 	spec->part_vector.cell_idx = calloc(spec->part_vector.np_max, sizeof(cl_int2));
 	spec->part_vector.position = calloc(spec->part_vector.np_max, sizeof(cl_float2));
 	spec->part_vector.velocity = calloc(spec->part_vector.np_max, sizeof(cl_float3));
@@ -444,7 +443,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 
 	// Inject initial particle distribution
 	spec->part_vector.np = 0;
-	const int range[][2] = {{0, nx[0]}, {0, nx[1]}};
+	const int range[][2] = { { 0, nx[0] }, { 0, nx[1] } };
 	spec_inject_particles(&spec->part_vector, range, spec->ppc, &spec->density, spec->dx,
 	        spec->n_move, ufl, uth);
 
@@ -465,9 +464,12 @@ void spec_init_tiles(t_species *spec, const int nx[2])
 	spec->temp_part.cell_idx = malloc(max_holes * sizeof(cl_int2));
 	spec->temp_part.position = malloc(max_holes * sizeof(cl_float2));
 	spec->temp_part.velocity = malloc(max_holes * sizeof(cl_float3));
+	spec->temp_part.np = 0;
+	spec->temp_part.np_max = max_holes;
 
 	spec->target_idx = malloc(max_holes * sizeof(int));
 	spec->sort_counter = malloc(n_tiles_total * sizeof(int));
+	spec->temp_offset = malloc(n_tiles_total * sizeof(int));
 
 	int *restrict new_pos = malloc(spec->part_vector.np * sizeof(int));
 
@@ -489,9 +491,26 @@ void spec_init_tiles(t_species *spec, const int nx[2])
 		new_pos[k] += spec->tile_offset[ix + iy * spec->n_tiles.x];
 	}
 
-	apply_sorting(&spec->part_vector, NULL, new_pos, spec->part_vector.np);
+	t_part_vector temp;
+	temp.cell_idx = malloc(spec->part_vector.np * sizeof(cl_int2));
+	temp.position = malloc(spec->part_vector.np * sizeof(cl_float2));
+	temp.velocity = malloc(spec->part_vector.np * sizeof(cl_float3));
+
+	memcpy(temp.cell_idx, spec->part_vector.cell_idx, spec->part_vector.np * sizeof(cl_int2));
+	memcpy(temp.position, spec->part_vector.position, spec->part_vector.np * sizeof(cl_float2));
+	memcpy(temp.velocity, spec->part_vector.velocity, spec->part_vector.np * sizeof(cl_float3));
+
+	for (int i = 0; i < spec->part_vector.np; i++)
+	{
+		spec->part_vector.cell_idx[new_pos[i]] = temp.cell_idx[i];
+		spec->part_vector.position[new_pos[i]] = temp.position[i];
+		spec->part_vector.velocity[new_pos[i]] = temp.velocity[i];
+	}
 
 	// Cleaning
+	free(temp.cell_idx);
+	free(temp.position);
+	free(temp.velocity);
 	free(new_pos);
 }
 
@@ -499,7 +518,7 @@ void spec_set_moving_window(t_species *spec)
 {
 	spec->moving_window = 1;
 
-	const int range[2][2] = {{spec->nx[0] - 1, spec->nx[0]}, {0, spec->nx[1]}};
+	const int range[2][2] = { { spec->nx[0] - 1, spec->nx[0] }, { 0, spec->nx[1] } };
 	const int np_inj = spec->nx[1] * spec->ppc[0] * spec->ppc[1];
 
 	spec->incoming_part.cell_idx = malloc(np_inj * sizeof(cl_int2));
@@ -508,7 +527,8 @@ void spec_set_moving_window(t_species *spec)
 	spec->incoming_part.np_max = np_inj;
 	spec->incoming_part.np = 0;
 
-	spec_inject_particles(&spec->incoming_part, range, spec->ppc, &spec->density, spec->dx, 0, spec->ufl, spec->uth);
+	spec_inject_particles(&spec->incoming_part, range, spec->ppc, &spec->density, spec->dx, 0,
+	        spec->ufl, spec->uth);
 }
 
 void spec_delete(t_species *spec)
@@ -526,8 +546,9 @@ void spec_delete(t_species *spec)
 
 	free(spec->target_idx);
 	free(spec->sort_counter);
+	free(spec->temp_offset);
 
-	if(spec->moving_window)
+	if (spec->moving_window)
 	{
 		free(spec->incoming_part.cell_idx);
 		free(spec->incoming_part.position);
@@ -770,31 +791,31 @@ void dep_current_zamb(int ix, int iy, int di, int dj, float x0, float y0, float 
 		wp2[0] = 0.5f * (S0x[0] + S1x[0]);
 		wp2[1] = 0.5f * (S0x[1] + S1x[1]);
 
-#pragma omp atomic
+//#pragma omp atomic
 		J[vp[k].ix + nrow * vp[k].iy].x += wl1 * wp1[0];
 
-#pragma omp atomic
+//#pragma omp atomic
 		J[vp[k].ix + nrow * (vp[k].iy + 1)].x += wl1 * wp1[1];
 
-#pragma omp atomic
+//#pragma omp atomic
 		J[vp[k].ix + nrow * vp[k].iy].y += wl2 * wp2[0];
 
-#pragma omp atomic
+//#pragma omp atomic
 		J[vp[k].ix + 1 + nrow * vp[k].iy].y += wl2 * wp2[1];
 
-#pragma omp atomic
+//#pragma omp atomic
 		J[vp[k].ix + nrow * vp[k].iy].z += vp[k].qvz
 		        * (S0x[0] * S0y[0] + S1x[0] * S1y[0] + (S0x[0] * S1y[0] - S1x[0] * S0y[0]) / 2.0f);
 
-#pragma omp atomic
+//#pragma omp atomic
 		J[vp[k].ix + 1 + nrow * vp[k].iy].z += vp[k].qvz
 		        * (S0x[1] * S0y[0] + S1x[1] * S1y[0] + (S0x[1] * S1y[0] - S1x[1] * S0y[0]) / 2.0f);
 
-#pragma omp atomic
+//#pragma omp atomic
 		J[vp[k].ix + nrow * (vp[k].iy + 1)].z += vp[k].qvz
 		        * (S0x[0] * S0y[1] + S1x[0] * S1y[1] + (S0x[0] * S1y[1] - S1x[0] * S0y[1]) / 2.0f);
 
-#pragma omp atomic
+//#pragma omp atomic
 		J[vp[k].ix + 1 + nrow * (vp[k].iy + 1)].z += vp[k].qvz
 		        * (S0x[1] * S0y[1] + S1x[1] * S1y[1] + (S0x[1] * S1y[1] - S1x[1] * S0y[1]) / 2.0f);
 
@@ -805,208 +826,33 @@ void dep_current_zamb(int ix, int iy, int di, int dj, float x0, float y0, float 
  Particle advance
  *********************************************************************************************/
 
-//void interpolate_fld(const t_vfld *restrict const E, const t_vfld *restrict const B, const int nrow,
-//		const t_part *restrict const part, t_vfld *restrict const Ep, t_vfld *restrict const Bp)
-//{
-//	register int i, j, ih, jh;
-//	register t_fld w1, w2, w1h, w2h;
-//
-//	i = part->ix;
-//	j = part->iy;
-//
-//	w1 = part->x;
-//	w2 = part->y;
-//
-//	ih = (w1 < 0.5f) ? -1 : 0;
-//	jh = (w2 < 0.5f) ? -1 : 0;
-//
-//	// w1h = w1 - 0.5f - ih;
-//	// w2h = w2 - 0.5f - jh;
-//	w1h = w1 + ((w1 < 0.5f) ? 0.5f : -0.5f);
-//	w2h = w2 + ((w2 < 0.5f) ? 0.5f : -0.5f);
-//
-//	ih += i;
-//	jh += j;
-//
-//	Ep->x = (E[ih + j * nrow].x * (1.0f - w1h) + E[ih + 1 + j * nrow].x * w1h) * (1.0f - w2)
-//			+ (E[ih + (j + 1) * nrow].x * (1.0f - w1h) + E[ih + 1 + (j + 1) * nrow].x * w1h) * w2;
-//
-//	Ep->y = (E[i + jh * nrow].y * (1.0f - w1) + E[i + 1 + jh * nrow].y * w1) * (1.0f - w2h)
-//			+ (E[i + (jh + 1) * nrow].y * (1.0f - w1) + E[i + 1 + (jh + 1) * nrow].y * w1) * w2h;
-//
-//	Ep->z = (E[i + j * nrow].z * (1.0f - w1) + E[i + 1 + j * nrow].z * w1) * (1.0f - w2)
-//			+ (E[i + (j + 1) * nrow].z * (1.0f - w1) + E[i + 1 + (j + 1) * nrow].z * w1) * w2;
-//
-//	Bp->x = (B[i + jh * nrow].x * (1.0f - w1) + B[i + 1 + jh * nrow].x * w1) * (1.0f - w2h)
-//			+ (B[i + (jh + 1) * nrow].x * (1.0f - w1) + B[i + 1 + (jh + 1) * nrow].x * w1) * w2h;
-//
-//	Bp->y = (B[ih + j * nrow].y * (1.0f - w1h) + B[ih + 1 + j * nrow].y * w1h) * (1.0f - w2)
-//			+ (B[ih + (j + 1) * nrow].y * (1.0f - w1h) + B[ih + 1 + (j + 1) * nrow].y * w1h) * w2;
-//
-//	Bp->z = (B[ih + jh * nrow].z * (1.0f - w1h) + B[ih + 1 + jh * nrow].z * w1h) * (1.0f - w2h)
-//			+ (B[ih + (jh + 1) * nrow].z * (1.0f - w1h) + B[ih + 1 + (jh + 1) * nrow].z * w1h) * w2h;
-//
-//}
-int ltrim(t_part_data x)
+void interpolate_fld(const t_vfld *restrict const E, const t_vfld *restrict const B, const int nrow,
+        const int ix, const int iy, const float x, const float y, t_vfld *restrict const Ep,
+        t_vfld *restrict const Bp)
 {
-	return (x >= 1.0f) - (x < 0.0f);
+	const int ih = ix + ((x < 0.5f) ? -1 : 0);
+	const int jh = iy + ((y < 0.5f) ? -1 : 0);
+
+	const float w1h = x + ((x < 0.5f) ? 0.5f : -0.5f);
+	const float w2h = y + ((y < 0.5f) ? 0.5f : -0.5f);
+
+	Ep->x = (E[ih + iy * nrow].x * (1.0f - w1h) + E[ih + 1 + iy * nrow].x * w1h) * (1.0f - y)
+	        + (E[ih + (iy + 1) * nrow].x * (1.0f - w1h) + E[ih + 1 + (iy + 1) * nrow].x * w1h) * y;
+	Ep->y = (E[ix + jh * nrow].y * (1.0f - x) + E[ix + 1 + jh * nrow].y * x) * (1.0f - w2h)
+	        + (E[ix + (jh + 1) * nrow].y * (1.0f - x) + E[ix + 1 + (jh + 1) * nrow].y * x) * w2h;
+	Ep->z = (E[ix + iy * nrow].z * (1.0f - x) + E[ix + 1 + iy * nrow].z * x) * (1.0f - y)
+	        + (E[ix + (iy + 1) * nrow].z * (1.0f - x) + E[ix + 1 + (iy + 1) * nrow].z * x) * y;
+
+	Bp->x = (B[ix + jh * nrow].x * (1.0f - x) + B[ix + 1 + jh * nrow].x * x) * (1.0f - w2h)
+	        + (B[ix + (jh + 1) * nrow].x * (1.0f - x) + B[ix + 1 + (jh + 1) * nrow].x * x) * w2h;
+	Bp->y = (B[ih + iy * nrow].y * (1.0f - w1h) + B[ih + 1 + iy * nrow].y * w1h) * (1.0f - y)
+	        + (B[ih + (iy + 1) * nrow].y * (1.0f - w1h) + B[ih + 1 + (iy + 1) * nrow].y * w1h) * y;
+	Bp->z = (B[ih + jh * nrow].z * (1.0f - w1h) + B[ih + 1 + jh * nrow].z * w1h) * (1.0f - w2h)
+	        + (B[ih + (jh + 1) * nrow].z * (1.0f - w1h) + B[ih + 1 + (jh + 1) * nrow].z * w1h)
+	                * w2h;
 }
 
-//void spec_advance_cpu(t_species *spec, t_emf *emf, t_current *current)
-//{
-//	t_part_data qnx, qny, qvz;
-//
-//	uint64_t t0;
-//	t0 = timer_ticks();
-//
-//	const t_part_data tem = 0.5 * spec->dt / spec->m_q;
-//	const t_part_data dt_dx = spec->dt / spec->dx[0];
-//	const t_part_data dt_dy = spec->dt / spec->dx[1];
-//
-//	// Auxiliary values for current deposition
-//	qnx = spec->q * spec->dx[0] / spec->dt;
-//	qny = spec->q * spec->dx[1] / spec->dt;
-//
-//	const int nx0 = spec->nx[0];
-//	const int nx1 = spec->nx[1];
-//
-//	// Advance internal iteration number
-//	spec->iter += 1;
-//
-//	// Advance particles
-//	#pragma omp for schedule(static)
-//	for (int i = 0; i < spec->part_vector.np; i++)
-//	{
-//		t_vfld Ep, Bp;
-//		t_part_data utx, uty, utz;
-//		t_part_data ux, uy, uz, rg;
-//		t_part_data utsq, gamma;
-//		t_part_data gtem, otsq;
-//
-//		t_part_data x1, y1;
-//
-//		int di, dj;
-//		float dx, dy;
-//
-//		// Load particle momenta
-//		ux = spec->part_vector.velocity[i].x;
-//		uy = spec->part_vector.velocity[i].y;
-//		uz = spec->part_vector.velocity[i].z;
-//
-//		// interpolate fields
-//		interpolate_fld(emf->E, emf->B, emf->nrow, &spec->part[i], &Ep, &Bp);
-//
-//		// advance u using Boris scheme
-//		Ep.x *= tem;
-//		Ep.y *= tem;
-//		Ep.z *= tem;
-//
-//		utx = ux + Ep.x;
-//		uty = uy + Ep.y;
-//		utz = uz + Ep.z;
-//
-//        // Get time centered energy
-//        utsq = utx*utx + uty*uty + utz*utz;
-//        gamma = sqrtf( 1.0f + utsq );
-//        spec -> energy += utsq / (gamma + 1);
-//
-//		// Perform first half of the rotation
-//		gtem = tem / sqrtf(1.0f + utx * utx + uty * uty + utz * utz);
-//
-//		Bp.x *= gtem;
-//		Bp.y *= gtem;
-//		Bp.z *= gtem;
-//
-//		otsq = 2.0f / (1.0f + Bp.x * Bp.x + Bp.y * Bp.y + Bp.z * Bp.z);
-//
-//		ux = utx + uty * Bp.z - utz * Bp.y;
-//		uy = uty + utz * Bp.x - utx * Bp.z;
-//		uz = utz + utx * Bp.y - uty * Bp.x;
-//
-//		// Perform second half of the rotation
-//
-//		Bp.x *= otsq;
-//		Bp.y *= otsq;
-//		Bp.z *= otsq;
-//
-//		utx += uy * Bp.z - uz * Bp.y;
-//		uty += uz * Bp.x - ux * Bp.z;
-//		utz += ux * Bp.y - uy * Bp.x;
-//
-//		// Perform second half of electric field acceleration
-//		ux = utx + Ep.x;
-//		uy = uty + Ep.y;
-//		uz = utz + Ep.z;
-//
-//		// Store new momenta
-//		spec->part_vector.velocity[i].x = ux;
-//		spec->part_vector.velocity[i].y = uy;
-//		spec->part_vector.velocity[i].z = uz;
-//
-//		// push particle
-//		rg = 1.0f / sqrtf(1.0f + ux * ux + uy * uy + uz * uz);
-//
-//		dx = dt_dx * rg * ux;
-//		dy = dt_dy * rg * uy;
-//
-//		x1 = spec->part_vector.position[i].x + dx;
-//		y1 = spec->part_vector.position[i].y + dy;
-//
-//		di = ltrim(x1);
-//		dj = ltrim(y1);
-//
-//		x1 -= di;
-//		y1 -= dj;
-//
-//		qvz = spec->q * uz * rg;
-//
-//		// deposit current using Eskirepov method
-////		dep_current_esk(spec->part_vector.cell_idx[i].x, spec->part_vector.cell_idx[i].y, di, dj, spec->part_vector.position[i].x, spec->part_vector.position[i].y, x1, y1, qnx, qny,
-////				qvz, current);
-//
-//		dep_current_zamb(spec->part_vector.cell_idx[i].x, spec->part_vector.cell_idx[i].y, di, dj, spec->part_vector.position[i].x, spec->part_vector.position[i].y, dx, dy, qnx, qny,
-//				qvz, current);
-//
-//		// Store results
-//		spec->part_vector.position[i].x = x1;
-//		spec->part_vector.position[i].y = y1;
-//		spec->part_vector.cell_idx[i].x += di;
-//		spec->part_vector.cell_idx[i].y += dj;
-//
-//		// First shift particle left (if applicable), then check for particles leaving the box
-//		if(spec->moving_window)
-//		{
-//
-//			if ((spec->iter * spec->dt) > (spec->dx[0] * (spec->n_move + 1)))
-//				spec->part_vector.cell_idx[i].x--;
-//
-//			if ((spec->part_vector.cell_idx[i].x < 0) || (spec->part_vector.cell_idx[i].x >= nx0))
-//			{
-//				spec->part[i--] = spec->part[--spec->part_vector.np];
-//				continue;
-//			}
-//		}else
-//		{
-//			spec->part_vector.cell_idx[i].x += ((spec->part_vector.cell_idx[i].x < 0) ? nx0 : 0) - ((spec->part_vector.cell_idx[i].x >= nx0) ? nx0 : 0);
-//		}
-//
-//		spec->part_vector.cell_idx[i].y += ((spec->part_vector.cell_idx[i].y < 0) ? nx1 : 0) - ((spec->part_vector.cell_idx[i].y >= nx1) ? nx1 : 0);
-//	}
-//
-//	if (spec->moving_window && (spec->iter * spec->dt) > (spec->dx[0] * (spec->n_move + 1)))
-//	{
-//		// Increase moving window counter
-//		spec->n_move++;
-//
-//		// Inject particles in the right edge of the simulation box
-//		const int range[][2] = {{spec->nx[0] - 1, spec->nx[0] - 1}, {0, spec->nx[1] - 1}};
-//		spec_inject_particles(spec, range);
-//	}
-//
-//	_spec_npush += spec->part_vector.np;
-//	_spec_time += timer_interval_seconds(t0, timer_ticks());
-//}
-
+#if TARGET_GPU || TARGET_FPGA
 void spec_advance(t_species *spec, t_emf *emf, t_current *current)
 {
 	// Advance internal iteration number
@@ -1021,18 +867,195 @@ void spec_advance(t_species *spec, t_emf *emf, t_current *current)
 	t_part_data qnx = spec->q * spec->dx[0] / spec->dt;
 	t_part_data qny = spec->q * spec->dx[1] / spec->dt;
 
+	memset(spec->temp_offset, 0, spec->n_tiles.x * spec->n_tiles.y * sizeof(int));
+
 	spec_advance_opencl(spec->part_vector.cell_idx, spec->part_vector.position,
-	        spec->part_vector.velocity, spec->tile_offset, spec->np_per_tile, spec->part_vector.np_max,
-	        emf->E_buf, emf->B_buf, current->J_buf, emf->nrow, emf->total_size, tem, dt_dx, dt_dy,
-	        qnx, qny, spec->q, spec->nx[0], spec->nx[1], spec->n_tiles, spec->moving_window, shift);
+	        spec->part_vector.velocity, spec->tile_offset, spec->np_per_tile, spec->temp_offset,
+	        spec->part_vector.np_max, emf->E_buf, emf->B_buf, current->J_buf, emf->nrow,
+	        emf->total_size, tem, dt_dx, dt_dy, qnx, qny, spec->q, spec->nx[0], spec->nx[1],
+	        spec->n_tiles, spec->moving_window, shift);
 
 	// Increase moving window counter
 	if (spec->moving_window && shift) spec->n_move++;
 
 	spec_sort(&spec->part_vector, &spec->temp_part, &spec->incoming_part, spec->tile_offset,
-			spec->np_per_tile, spec->sort_counter, spec->target_idx, spec->n_tiles, spec->nx,
-			spec->moving_window, shift, spec->ppc);
+	        spec->np_per_tile, spec->sort_counter, spec->target_idx, spec->temp_offset,
+	        spec->n_tiles, spec->nx, spec->moving_window, shift, spec->ppc);
+
+//	spec_sort_cpu(&spec->part_vector, spec->tile_offset, spec->np_per_tile, spec->n_tiles, spec->nx);
 }
+
+#else
+void spec_advance(t_species *spec, t_emf *emf, t_current *current)
+{
+	uint64_t t0 = timer_ticks();
+
+	const int shift = (spec->iter * spec->dt) > (spec->dx[0] * (spec->n_move + 1));
+
+	const t_part_data tem = 0.5 * spec->dt / spec->m_q;
+	const t_part_data dt_dx = spec->dt / spec->dx[0];
+	const t_part_data dt_dy = spec->dt / spec->dx[1];
+
+	// Auxiliary values for current deposition
+	t_part_data qnx = spec->q * spec->dx[0] / spec->dt;
+	t_part_data qny = spec->q * spec->dx[1] / spec->dt;
+
+	const int nx0 = spec->nx[0];
+	const int nx1 = spec->nx[1];
+
+	// Advance internal iteration number
+	spec->iter += 1;
+
+	memset(spec->temp_offset, 0, spec->n_tiles.x * spec->n_tiles.y * sizeof(int));
+
+	// Advance particles
+	#pragma omp for schedule(static)
+	for(int tile_y = 0; tile_y < spec->n_tiles.y; tile_y++)
+	{
+		for(int tile_x = 0; tile_x < spec->n_tiles.x; tile_x++)
+		{
+			const int current_tile = tile_x + tile_y * spec->n_tiles.x;
+			const int begin = spec->tile_offset[current_tile];
+			const int end = spec->tile_offset[current_tile + 1];
+
+			for (int i = begin; i < end; i++)
+			{
+				t_vfld Ep, Bp;
+
+				int ix, iy;
+
+				t_part_data utx, uty, utz;
+				t_part_data ux, uy, uz, rg;
+				t_part_data utsq, qvz;
+				t_part_data gtem, otsq;
+
+				t_part_data x0, y0;
+				t_part_data x1, y1;
+
+				int di, dj;
+				float dx, dy;
+
+				x0 = spec->part_vector.position[i].x;
+				y0 = spec->part_vector.position[i].y;
+
+				ix = spec->part_vector.cell_idx[i].x;
+				iy = spec->part_vector.cell_idx[i].y;
+
+				// Load particle momenta
+				ux = spec->part_vector.velocity[i].x;
+				uy = spec->part_vector.velocity[i].y;
+				uz = spec->part_vector.velocity[i].z;
+
+				// interpolate fields
+				interpolate_fld(emf->E, emf->B, emf->nrow, ix, iy, x0, y0, &Ep, &Bp);
+
+				// advance u using Boris scheme
+				Ep.x *= tem;
+				Ep.y *= tem;
+				Ep.z *= tem;
+
+				utx = ux + Ep.x;
+				uty = uy + Ep.y;
+				utz = uz + Ep.z;
+
+				// Get time centered energy
+				utsq = utx * utx + uty * uty + utz * utz;
+
+				// Perform first half of the rotation
+				gtem = tem / sqrtf(1.0f + utsq);
+
+				Bp.x *= gtem;
+				Bp.y *= gtem;
+				Bp.z *= gtem;
+
+				otsq = 2.0f / (1.0f + Bp.x * Bp.x + Bp.y * Bp.y + Bp.z * Bp.z);
+
+				ux = utx + uty * Bp.z - utz * Bp.y;
+				uy = uty + utz * Bp.x - utx * Bp.z;
+				uz = utz + utx * Bp.y - uty * Bp.x;
+
+				// Perform second half of the rotation
+				Bp.x *= otsq;
+				Bp.y *= otsq;
+				Bp.z *= otsq;
+
+				utx += uy * Bp.z - uz * Bp.y;
+				uty += uz * Bp.x - ux * Bp.z;
+				utz += ux * Bp.y - uy * Bp.x;
+
+				// Perform second half of electric field acceleration
+				ux = utx + Ep.x;
+				uy = uty + Ep.y;
+				uz = utz + Ep.z;
+
+				// Store new momenta
+				spec->part_vector.velocity[i].x = ux;
+				spec->part_vector.velocity[i].y = uy;
+				spec->part_vector.velocity[i].z = uz;
+
+				// push particle
+				rg = 1.0f / sqrtf(1.0f + ux * ux + uy * uy + uz * uz);
+
+				dx = dt_dx * rg * ux;
+				dy = dt_dy * rg * uy;
+
+				x1 = x0 + dx;
+				y1 = y0 + dy;
+
+				di = LTRIM(x1);
+				dj = LTRIM(y1);
+
+				x1 -= di;
+				y1 -= dj;
+
+				qvz = spec->q * uz * rg;
+
+				// deposit current using Eskirepov method
+		//		dep_current_esk(spec->part_vector.cell_idx[i].x, spec->part_vector.cell_idx[i].y, di, dj, spec->part_vector.position[i].x, spec->part_vector.position[i].y, x1, y1, qnx, qny,
+		//				qvz, current);
+
+				dep_current_zamb(ix, iy, di, dj, x0, y0, dx, dy, qnx, qny, qvz, current);
+
+				ix += di;
+				iy += dj;
+
+				// First shift particle left (if applicable), then check for particles leaving the box
+				if (!spec->moving_window) ix += ((ix < 0) ? nx0 : 0) - ((ix >= nx0) ? nx0 : 0);
+				else if (spec->moving_window && shift) ix--;
+
+				iy += ((iy < 0) ? nx1 : 0) - ((iy >= nx1) ? nx1 : 0);
+
+				// Store results
+				spec->part_vector.position[i].x = x1;
+				spec->part_vector.position[i].y = y1;
+				spec->part_vector.cell_idx[i].x = ix;
+				spec->part_vector.cell_idx[i].y = iy;
+
+				int tile_x = ix / TILE_SIZE;
+				int tile_y = iy / TILE_SIZE;
+				int target_tile = tile_x + tile_y * spec->n_tiles.x;
+
+				if(ix >= 0 && ix < nx0)
+				{
+					#pragma omp atomic
+					spec->np_per_tile[target_tile]++;
+				}
+
+				if(target_tile != current_tile)
+					spec->temp_offset[current_tile]++;
+			}
+		}
+	}
+
+	spec_sort(&spec->part_vector, &spec->temp_part, &spec->incoming_part, spec->tile_offset,
+	        spec->np_per_tile, spec->sort_counter, spec->target_idx, spec->temp_offset,
+	        spec->n_tiles, spec->nx, spec->moving_window, shift, spec->ppc);
+
+	_spec_npush += spec->part_vector.np;
+	_spec_time += timer_interval_seconds(t0, timer_ticks());
+}
+
+#endif
 
 /*********************************************************************************************
  Charge Deposition
