@@ -1,6 +1,6 @@
 # GCC options
 CC = pgcc
-CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -mp -cudalibs -g
+CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -mp -cudalibs -g 
 
 
 INCLUDES = -I/home/nicolas/ompss-2/include/

@@ -588,7 +588,6 @@ void emf_update_gc_y(t_emf *emf)
 // Move the simulation window
 void emf_move_window(t_emf *emf)
 {
-
 	if ((emf->iter * emf->dt) > emf->dx[0] * (emf->n_move + 1))
 	{
 		int i, j;

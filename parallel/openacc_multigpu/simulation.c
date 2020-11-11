@@ -93,7 +93,7 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	}
 
 	for(int i = 0; i < n_regions; i++)
-		region_init(&sim->regions[i]);
+		region_init(&sim->regions[i], n_regions / acc_get_num_devices(DEVICE_TYPE));
 
 	// Cleaning
 	for (int n = 0; n < n_species; ++n)
@@ -377,6 +377,7 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 		n_regions++;
 	} while (region->id != 0);
 
+#ifndef TEST
 	fprintf(stdout, "Simulation: %s\n", sim->name);
 	fprintf(stdout, "Number of regions (Total): %d\n", sim->n_regions);
 	fprintf(stdout, "Number of GPUs: %d\n", acc_get_num_devices(DEVICE_TYPE));
@@ -400,6 +401,13 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 //		fprintf(stderr, "Particle advance [nsec/part] = %f \n", 1.e9 * perf);
 //		fprintf(stderr, "Particle advance [Mpart/sec] = %f \n", 1.e-6 / perf);
 //	}
+#else
+#ifdef ENABLE_PREFETCH
+	printf("%s,%d,%d,%d,1,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), TILE_SIZE, timer_interval_seconds(t0, t1));
+#else
+	printf("%s,%d,%d,%d,0,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), TILE_SIZE, timer_interval_seconds(t0, t1));
+#endif
+#endif
 }
 
 // Save the grid quantity to a ZDF file

@@ -28,7 +28,12 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
+<<<<<<< Updated upstream
 #include "input/weibel-500-67M-512-512.c"
+=======
+#include "input/weibel-500-151M-1024-1024.c"
+// #include "input/lwfa-8000-74M-4000-2048.c"
+>>>>>>> Stashed changes
 
 int main(int argc, const char *argv[])
 {

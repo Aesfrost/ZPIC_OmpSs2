@@ -265,7 +265,11 @@ void spec_move_vector_int(int *restrict vector, int *restrict temp, int *restric
 	for (int i = 0; i < move_size; i++)
 		if (source_idx[i] >= 0) vector[target_idx[i]] = temp[i];
 
+<<<<<<< Updated upstream
 	#pragma acc wait
+=======
+
+>>>>>>> Stashed changes
 }
 
 // Sort vector based on the new_pos array
@@ -302,7 +306,11 @@ void spec_move_vector_float(float *restrict vector, float *restrict temp, int *r
 	for (int i = 0; i < move_size; i++)
 		if (source_idx[i] >= 0) vector[target_idx[i]] = temp[i];
 
+<<<<<<< Updated upstream
 	#pragma acc wait
+=======
+
+>>>>>>> Stashed changes
 }
 
 /*********************************************************************************************
@@ -383,6 +391,7 @@ void spec_organize_in_tiles(t_species *spec, const int limits_y[2], const int de
  *********************************************************************************************/
 
 // EM fields interpolation. OpenAcc
+//#pragma acc routine
 void interpolate_fld_openacc(const t_vfld *restrict const E, const t_vfld *restrict const B,
 		const int nrow, const int ix, const int iy, const t_fld x, const t_fld y,
 		t_vfld *restrict const Ep, t_vfld *restrict const Bp)
@@ -410,6 +419,7 @@ void interpolate_fld_openacc(const t_vfld *restrict const E, const t_vfld *restr
 }
 
 // Current deposition (adapted Villasenor-Bunemann method). OpenAcc
+//#pragma acc routine
 void dep_current_openacc(int ix, int iy, int di, int dj, float x0, float y0, float dx,
 		float dy, float qnx, float qny, float qvz, t_vfld *restrict const J, const int nrow,
 		t_vp vp[THREAD_BLOCK * 3], const int thread_id)
@@ -573,6 +583,7 @@ void dep_current_openacc(int ix, int iy, int di, int dj, float x0, float y0, flo
 }
 
 // Advance u using Boris scheme. OpenAcc
+//#pragma acc routine
 void advance_part_momentum(t_float3 *part_velocity, t_vfld Ep, t_vfld Bp, const t_part_data tem)
 {
 	Ep.x *= tem;

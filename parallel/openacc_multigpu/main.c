@@ -29,7 +29,8 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-#include "input/weibel-1000-151M-2048-2048.c"
+#include "input/weibel-500-151M-1024-1024.c"
+// #include "input/lwfa-8000-74M-4000-2048.c"
 
 int main(int argc, const char *argv[])
 {
@@ -48,7 +49,9 @@ int main(int argc, const char *argv[])
 	float t;
 	const int num_threads = MIN_VALUE(atoi(argv[1]), omp_get_max_threads());
 
+#ifndef TEST
 	fprintf(stderr, "Starting simulation ...\n\n");
+#endif
 
 	uint64_t t0, t1;
 	t0 = timer_ticks();
@@ -75,7 +78,10 @@ int main(int argc, const char *argv[])
 	//sim_report(&sim);
 
 	t1 = timer_ticks();
+
+#ifndef TEST
 	fprintf(stderr, "\nSimulation ended.\n\n");
+#endif
 
 	// Simulation times
 	sim_timings(&sim, t0, t1, sim.tmax / sim.dt);

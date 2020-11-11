@@ -11,7 +11,6 @@
 #define __ZPIC__
 
 #include <openacc.h>
-
 #define DEVICE_TYPE acc_device_nvidia
 
 typedef float t_fld;
@@ -32,6 +31,7 @@ typedef struct {
 typedef struct {
 	t_part_data x, y, z;
 } t_float3;
+
 
 /* ANSI C does not define math constants */
 

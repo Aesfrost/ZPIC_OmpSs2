@@ -11,6 +11,9 @@
 #include "current.h"
 #include "utilities.h"
 
+#define LOCAL_BUFFER_SIZE 1024
+#define MIN_VALUE(x, y) x < y ? x : y
+
 #ifdef ENABLE_PREFETCH
 #include <cuda.h>
 
@@ -131,24 +134,35 @@ void kernel_x_openacc(t_current *const current, const t_fld sa, const t_fld sb)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
-	t_vfld *restrict J_aux = current->J_temp + current->gc[0][0] + current->gc[1][0] * current->nrow;
 
-	#pragma acc parallel loop gang
+	// Apply the filter in the x direction
+	#pragma acc parallel loop gang vector_length(384)
 	for (int j = 0; j < current->nx[1]; ++j)
 	{
-		#pragma acc loop vector
-		for(int i = -current->gc[0][0]; i < current->nx[0] + current->gc[0][0]; i++)
-			J_aux[i + j * nrow] = J[i + j * nrow];
+		t_vfld J_temp[LOCAL_BUFFER_SIZE + 2];
+		#pragma acc cache(J_temp[0:LOCAL_BUFFER_SIZE + 2])
 
-		#pragma acc loop vector
-		for (int i = 0; i < current->nx[0]; ++i)
+		for(int begin_idx = 0; begin_idx < current->nx[0]; begin_idx += LOCAL_BUFFER_SIZE)
 		{
-			J[i + j * nrow].x = J_aux[i - 1 + j * nrow].x * sa + J_aux[i + j * nrow].x * sb
-					+ J_aux[i + 1 + j * nrow].x * sa;
-			J[i + j * nrow].y = J_aux[i - 1 + j * nrow].y * sa + J_aux[i + j * nrow].y * sb
-					+ J_aux[i + 1 + j * nrow].y * sa;
-			J[i + j * nrow].z = J_aux[i - 1 + j * nrow].z * sa + J_aux[i + j * nrow].z * sb
-					+ J_aux[i + 1 + j * nrow].z * sa;
+			const int batch = MIN_VALUE(current->nx[0] - begin_idx, LOCAL_BUFFER_SIZE);
+
+			if(begin_idx == 0) J_temp[0] = J[j * nrow - 1];
+			else J_temp[0] = J_temp[LOCAL_BUFFER_SIZE];
+
+			#pragma acc loop vector
+			for(int i = 0; i <= batch; i++)
+				J_temp[i + 1] = J[begin_idx + i + j * nrow];
+
+			#pragma acc loop vector
+			for (int i = 0; i < batch; i++)
+			{
+				J[begin_idx + i + j * nrow].x = J_temp[i].x * sa + J_temp[i + 1].x * sb
+						+ J_temp[i + 2].x * sa;
+				J[begin_idx + i + j * nrow].y = J_temp[i].y * sa + J_temp[i + 1].y * sb
+						+ J_temp[i + 2].y * sa;
+				J[begin_idx + i + j * nrow].z = J_temp[i].z * sa + J_temp[i + 1].z * sb
+						+ J_temp[i + 2].z * sa;
+			}
 		}
 
 		if(!current->moving_window)
@@ -166,11 +180,9 @@ void kernel_x_openacc(t_current *const current, const t_fld sa, const t_fld sb)
 void current_smooth_x_openacc(t_current *current, const int device)
 {
 	const int size = current->total_size;
-	current->J_temp = alloc_align_buffer(DEFAULT_ALIGNMENT, size * sizeof(t_vfld));
 
 #ifdef ENABLE_PREFETCH
 	current_prefetch_openacc(current->J_buf, size, device);
-	current_prefetch_openacc(current->J_temp, size, device);
 #endif
 
 	// binomial filter
@@ -189,6 +201,4 @@ void current_smooth_x_openacc(t_current *current, const int device)
 
 		kernel_x_openacc(current, a / total, b / total);
 	}
-
-	free_align_buffer(current->J_temp);
 }

@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define LOCAL_BUFFER_SIZE 1024
+
 #ifdef ENABLE_PREFETCH
 #include <cuda.h>
 
@@ -159,52 +161,54 @@ void emf_update_gc_y_openacc(t_emf *emf, const int device)
 }
 
 // Move the simulation window
-void emf_move_window_openacc(t_emf *emf, const int device)
+void emf_move_window_openacc(t_emf *emf)
 {
 	if ((emf->iter * emf->dt) > emf->dx[0] * (emf->n_move + 1))
 	{
 		const int nrow = emf->nrow;
 		size_t size = emf->total_size;
-		t_vfld *const restrict E = malloc(size * sizeof(t_vfld));
-		t_vfld *const restrict B = malloc(size * sizeof(t_vfld));
-
 		const t_vfld zero_fld = {0., 0., 0.};
 
 		// Increase moving window counter
 		emf->n_move++;
 
-#ifdef ENABLE_PREFETCH
-	emf_prefetch_openacc(B, size, device);
-	emf_prefetch_openacc(E, size, device);
-#endif
-
-		#pragma acc parallel loop
-		for(int i = 0; i < size; i++)
-		{
-			E[i] = emf->E_buf[i];
-			B[i] = emf->B_buf[i];
-		}
-
 		// Shift data left 1 cell and zero rightmost cells
-		#pragma acc parallel loop independent collapse(2)
+		#pragma acc parallel loop gang vector_length(384)
 		for (int j = 0; j < emf->gc[1][0] + emf->nx[1] + emf->gc[1][1]; j++)
 		{
-			for (int i = 0; i < nrow; i++)
+			t_vfld B_temp[LOCAL_BUFFER_SIZE];
+			t_vfld E_temp[LOCAL_BUFFER_SIZE];
+
+			#pragma acc cache(B_temp[0:LOCAL_BUFFER_SIZE])
+			#pragma acc cache(E_temp[0:LOCAL_BUFFER_SIZE])
+
+			for(int begin_idx = 0; begin_idx < nrow; begin_idx += LOCAL_BUFFER_SIZE)
 			{
-				if (i < emf->gc[0][0] + emf->nx[0] - 1)
+				#pragma acc loop vector
+				for(int i = 0; i < LOCAL_BUFFER_SIZE; i++)
 				{
-					emf->E_buf[i + j * nrow] = E[i + j * nrow + 1];
-					emf->B_buf[i + j * nrow] = B[i + j * nrow + 1];
-				} else
+					if((begin_idx + i) < emf->gc[0][0] + emf->nx[0] - 1)
+					{
+						B_temp[i] = emf->B_buf[begin_idx + 1 + i + j * nrow];
+						E_temp[i] = emf->E_buf[begin_idx + 1 + i + j * nrow];
+					}else
+					{
+						B_temp[i] = zero_fld;
+						E_temp[i] = zero_fld;
+					}
+				}
+
+				#pragma acc loop vector
+				for(int i = 0; i < LOCAL_BUFFER_SIZE; i++)
 				{
-					emf->E_buf[i + j * nrow] = zero_fld;
-					emf->B_buf[i + j * nrow] = zero_fld;
+					if(begin_idx + i < nrow)
+					{
+						emf->E_buf[begin_idx + i + j * nrow] = E_temp[i];
+						emf->B_buf[begin_idx + i + j * nrow] = B_temp[i];
+					}
 				}
 			}
 		}
-
-		free(E);
-		free(B);
 	}
 }
 
@@ -231,6 +235,6 @@ void emf_advance_openacc(t_emf *emf, const t_current *current, const int device)
 	emf->iter += 1;
 
 	// Move simulation window if needed
-	if (emf->moving_window) emf_move_window_openacc(emf, device);
+	if (emf->moving_window) emf_move_window_openacc(emf);
 }
 

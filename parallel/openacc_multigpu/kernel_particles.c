@@ -12,11 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-//#ifdef ENABLE_PREFETCH
-//#include <cuda.h>
-//#endif
-
-
 #include "particles.h"
 #include "math.h"
 #include "utilities.h"
@@ -32,13 +27,25 @@ typedef struct {
  Utilities
  *********************************************************************************************/
 
-void prefix_sum_openacc(int *restrict vector, const int size);
+// Add the block offset to the vector
+void add_block_sum(int *restrict vector, int *restrict block_sum, const int num_blocks,
+        const int block_size, const int vector_size)
+{
+	#pragma acc parallel loop gang
+	for (int block_id = 1; block_id < num_blocks; block_id++)
+	{
+		const int begin_idx = block_id * block_size;
+
+		#pragma acc loop vector
+		for (int i = 0; i < block_size; i++)
+			if (i + begin_idx < vector_size) vector[i + begin_idx] += block_sum[block_id];
+	}
+}
 
 // Prefix Sum (Exclusive) - 1 warp per thread block
-void prefix_sum_openacc_min(int *restrict vector, const int size)
+void prefix_sum_min(int *restrict vector, int *restrict block_sum, const int num_blocks,
+        const int size)
 {
-	const int num_blocks = ceil((float) size / MIN_WARP_SIZE);
-	int *restrict block_sum = malloc(num_blocks * sizeof(int));
 
 	// Prefix sum using a binomial tree
 	#pragma acc parallel loop gang vector_length(MIN_WARP_SIZE)
@@ -49,6 +56,7 @@ void prefix_sum_openacc_min(int *restrict vector, const int size)
 
 		#pragma acc cache(local_buffer[0: MIN_WARP_SIZE])
 
+		// Copy to the local buffer
 		#pragma acc loop vector
 		for (int i = 0; i < MIN_WARP_SIZE; i++)
 		{
@@ -56,17 +64,21 @@ void prefix_sum_openacc_min(int *restrict vector, const int size)
 			else local_buffer[i] = 0;
 		}
 
+		// Scan the tree upward (in direction to the root).
+		// Add the values of each node and stores the result in the right node
 		for (int offset = 1; offset < MIN_WARP_SIZE; offset *= 2)
 		{
 			#pragma acc loop vector
 			for (int i = offset - 1; i < MIN_WARP_SIZE; i += 2 * offset)
 				local_buffer[i + offset] += local_buffer[i];
-
 		}
 
+		// Store the total sum in the block sum vector and reset the last position of the vector
 		block_sum[block_id] = local_buffer[MIN_WARP_SIZE - 1];
 		local_buffer[MIN_WARP_SIZE - 1] = 0;
 
+		// Scan the tree downward (from the root).
+		// First, swap the values between nodes, then update the right node with the sum
 		for (int offset = MIN_WARP_SIZE >> 1; offset > 0; offset >>= 1)
 		{
 			#pragma acc loop vector
@@ -78,36 +90,17 @@ void prefix_sum_openacc_min(int *restrict vector, const int size)
 			}
 		}
 
+		// Store the results in the global vector
 		#pragma acc loop vector
 		for (int i = 0; i < MIN_WARP_SIZE; i++)
 			if (i + begin_idx < size) vector[i + begin_idx] = local_buffer[i];
 	}
-
-	if (num_blocks > 1)
-	{
-		prefix_sum_openacc(block_sum, num_blocks);
-
-		// Add the values from the block sum
-		#pragma acc parallel loop gang
-		for (int block_id = 1; block_id < num_blocks; block_id++)
-		{
-			const int begin_idx = block_id * MIN_WARP_SIZE;
-
-			#pragma acc loop vector
-			for (int i = 0; i < MIN_WARP_SIZE; i++)
-				if (i + begin_idx < size) vector[i + begin_idx] += block_sum[block_id];
-		}
-	}
-
-	free(block_sum);
 }
 
 // Prefix Sum (Exclusive) - Multiple warps per thread block
-void prefix_sum_openacc_full(int *restrict vector, const int size)
+void prefix_sum_full(int *restrict vector, int *restrict block_sum, const int num_blocks,
+        const int size)
 {
-	const int num_blocks = ceil((float) size / LOCAL_BUFFER_SIZE);
-	int *restrict block_sum = malloc(num_blocks * sizeof(int));
-
 	// Prefix sum using a binomial tree
 	#pragma acc parallel loop gang vector_length(LOCAL_BUFFER_SIZE / 2)
 	for (int block_id = 0; block_id < num_blocks; block_id++)
@@ -117,6 +110,7 @@ void prefix_sum_openacc_full(int *restrict vector, const int size)
 
 		#pragma acc cache(local_buffer[0: LOCAL_BUFFER_SIZE])
 
+		// Copy to the local buffer
 		#pragma acc loop vector
 		for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)
 		{
@@ -124,6 +118,8 @@ void prefix_sum_openacc_full(int *restrict vector, const int size)
 			else local_buffer[i] = 0;
 		}
 
+		// Scan the tree upward (in direction to the root).
+		// Add the values of each node and stores the result in the right node
 		for (int offset = 1; offset < LOCAL_BUFFER_SIZE; offset *= 2)
 		{
 			#pragma acc loop vector
@@ -132,9 +128,12 @@ void prefix_sum_openacc_full(int *restrict vector, const int size)
 
 		}
 
+		// Store the total sum in the block sum vector and reset the last position of the vector
 		block_sum[block_id] = local_buffer[LOCAL_BUFFER_SIZE - 1];
 		local_buffer[LOCAL_BUFFER_SIZE - 1] = 0;
 
+		// Scan the tree downward (from the root).
+		// First, swap the values between nodes, then update the right node with the sum
 		for (int offset = LOCAL_BUFFER_SIZE >> 1; offset > 0; offset >>= 1)
 		{
 			#pragma acc loop vector
@@ -146,35 +145,50 @@ void prefix_sum_openacc_full(int *restrict vector, const int size)
 			}
 		}
 
+		// Store the results in the global vector
 		#pragma acc loop vector
 		for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)
 			if (i + begin_idx < size) vector[i + begin_idx] = local_buffer[i];
 	}
-
-	if (num_blocks > 1)
-	{
-		prefix_sum_openacc(block_sum, num_blocks);
-
-		// Add the values from the block sum
-		#pragma acc parallel loop gang
-		for (int block_id = 1; block_id < num_blocks; block_id++)
-		{
-			const int begin_idx = block_id * LOCAL_BUFFER_SIZE;
-
-			#pragma acc loop vector
-			for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)
-				if (i + begin_idx < size) vector[i + begin_idx] += block_sum[block_id];
-		}
-	}
-
-	free(block_sum);
 }
 
 // Prefix/Scan Sum (Exclusive)
 void prefix_sum_openacc(int *restrict vector, const int size)
 {
-	if(size < LOCAL_BUFFER_SIZE / 4) prefix_sum_openacc_min(vector, size);
-	else prefix_sum_openacc_full(vector, size);
+	int num_blocks;
+	int *restrict block_sum;
+
+	if(size < LOCAL_BUFFER_SIZE / 4)
+	{
+		num_blocks = ceil((float) size / MIN_WARP_SIZE);
+		block_sum = malloc(num_blocks * sizeof(int));
+
+		prefix_sum_min(vector, block_sum, num_blocks, size);
+
+		if (num_blocks > 1)
+		{
+			prefix_sum_openacc(block_sum, num_blocks);
+
+			// Add the values from the block sum
+			add_block_sum(vector, block_sum, num_blocks, MIN_WARP_SIZE, size);
+		}
+	} else
+	{
+		num_blocks = ceil((float) size / LOCAL_BUFFER_SIZE);
+		block_sum = malloc(num_blocks * sizeof(int));
+
+		prefix_sum_full(vector, block_sum, num_blocks, size);
+
+		if (num_blocks > 1)
+		{
+			prefix_sum_openacc(block_sum, num_blocks);
+
+			// Add the values from the block sum
+			add_block_sum(vector, block_sum, num_blocks, LOCAL_BUFFER_SIZE, size);
+		}
+	}
+
+	free(block_sum);
 }
 
 // Apply the sorting to one of the particle vectors. If source_idx == NULL, apply the sorting in the whole array
@@ -329,6 +343,7 @@ void spec_organize_in_tiles(t_species *spec, const int limits_y[2], const int de
  *********************************************************************************************/
 
 // EM fields interpolation. OpenAcc Task
+#pragma acc routine
 void interpolate_fld_openacc(const t_vfld *restrict const E, const t_vfld *restrict const B,
 		const int nrow, const int ix, const int iy, const t_fld x, const t_fld y,
 		t_vfld *restrict const Ep, t_vfld *restrict const Bp)
@@ -356,6 +371,7 @@ void interpolate_fld_openacc(const t_vfld *restrict const E, const t_vfld *restr
 }
 
 // Current deposition (adapted Villasenor-Bunemann method). OpenAcc task
+#pragma acc routine
 void dep_current_openacc(int ix, int iy, int di, int dj, float x0, float y0, float dx,
 		float dy, float qnx, float qny, float qvz, t_vfld *restrict const J, const int nrow,
 		t_vp vp[THREAD_BLOCK * 3], const int thread_id)
@@ -519,6 +535,7 @@ void dep_current_openacc(int ix, int iy, int di, int dj, float x0, float y0, flo
 }
 
 // Advance u using Boris scheme
+#pragma acc routine
 void advance_part_velocity(t_float3 *part_velocity, t_vfld Ep, t_vfld Bp, const t_part_data tem)
 {
 	Ep.x *= tem;
@@ -1050,7 +1067,6 @@ void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_of
 		const int offset_region)
 {
 	const int n_tiles = n_tiles_x * n_tiles_y;
-
 	int *restrict np_per_tile = malloc(n_tiles * sizeof(int));
 
 	// Reset the number of particles per tile

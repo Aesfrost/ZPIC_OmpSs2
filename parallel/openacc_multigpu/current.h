@@ -31,8 +31,6 @@ typedef struct {
 	t_vfld *J;
 	t_vfld *J_buf;
 
-	t_vfld *J_temp;
-
 	// Grid parameters
 	int nx[2];
 	int nrow;
