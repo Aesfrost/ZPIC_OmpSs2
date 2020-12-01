@@ -10,10 +10,8 @@
 #ifndef __ZPIC__
 #define __ZPIC__
 
-#ifdef MANUAL_GPU_SETUP
 #include <openacc.h>
 #define DEVICE_TYPE acc_device_nvidia
-#endif
 
 typedef float t_fld;
 typedef float t_part_data;

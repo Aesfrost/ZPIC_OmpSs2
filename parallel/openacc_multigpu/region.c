@@ -41,6 +41,10 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 	region->nx[0] = nx[0];
 	region->nx[1] = region->limits_y[1] - region->limits_y[0];
 
+#ifdef ENABLE_LD_BALANCE
+	region->limits_y[1] += EXTRA_GC;
+#endif
+
 	region->iter_time = 0.0;
 
 	// Initialise particles in the region
@@ -112,18 +116,18 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 }
 
 // Link two adjacent regions and calculate the overlap zone between them
-void region_init(t_region *region, const int regions_per_gpu)
+void region_init(t_region *region)
 {
 	current_overlap_zone(&region->local_current, &region->prev->local_current);
 	emf_overlap_zone(&region->local_emf, &region->prev->local_emf);
 
-	acc_set_device_num(region->id / regions_per_gpu, DEVICE_TYPE);
+	acc_set_device_num(region->id % _num_gpus, DEVICE_TYPE);
 
 	for(int i = 0; i < region->n_species; i++)
 	{
 		region->species[i].outgoing_part[0] = &region->prev->species[i].incoming_part[1];
 		region->species[i].outgoing_part[1] = &region->next->species[i].incoming_part[0];
-		spec_organize_in_tiles(&region->species[i], region->limits_y, region->id / regions_per_gpu);
+		spec_organize_in_tiles(&region->species[i], region->limits_y, region->id % _num_gpus);
 	}
 }
 
@@ -190,110 +194,112 @@ void region_delete(t_region *region)
 
 void region_advance(t_region *regions, const int n_regions)
 {
-	const int regions_per_gpu = n_regions / _num_gpus;
-
-	#pragma omp for schedule(static)
+	#pragma omp for schedule(static, 1)
 	for(int i = 0; i < n_regions; i++)
 	{
-		acc_set_device_num(i / regions_per_gpu, DEVICE_TYPE);
-
-		current_zero_openacc(&regions[i].local_current, i / regions_per_gpu);
-
-		for (int k = 0; k < regions[i].n_species; k++)
-		{
-			spec_advance_openacc(&regions[i].species[k], &regions[i].local_emf,
-					&regions[i].local_current, regions[i].limits_y, i / regions_per_gpu);
-
-			if (regions[i].species[k].moving_window)
-				spec_move_window_openacc(&regions[i].species[k], regions[i].limits_y, i / regions_per_gpu);
-
-			spec_check_boundaries_openacc(&regions[i].species[k], regions[i].limits_y,
-					i / regions_per_gpu);
-		}
+		const int device = i % _num_gpus;
+		acc_set_device_num(device, DEVICE_TYPE);
 
 		// Advance iteration count
 		regions[i].iter++;
 
-		if (!regions[i].local_current.moving_window)
-			current_reduction_x_openacc(&regions[i].local_current, i / regions_per_gpu);
-	}
-
-	#pragma omp for schedule(static)
-	for(int i = 0; i < n_regions; i++)
-	{
-		acc_set_device_num(i / regions_per_gpu, DEVICE_TYPE);
+		current_zero_openacc(&regions[i].local_current, device);
 
 		for (int k = 0; k < regions[i].n_species; k++)
-			spec_sort_openacc(&regions[i].species[k], regions[i].limits_y, i / regions_per_gpu);
+		{
+			spec_advance_openacc(&regions[i].species[k], &regions[i].local_emf,
+					&regions[i].local_current, regions[i].limits_y, device);
+			if (regions[i].species[k].moving_window)
+				spec_move_window_openacc(&regions[i].species[k], regions[i].limits_y, device);
+			spec_check_boundaries_openacc(&regions[i].species[k], regions[i].limits_y, device);
 
-		current_reduction_y_openacc(&regions[i].local_current, i / regions_per_gpu);
+#ifdef ENABLE_LD_BALANCE
+			if(regions[i].iter % LD_BALANCE_FREQ == 0 && _num_gpus > 2)
+				spec_load_balance(&regions[i].species[k], &regions[i].next->species[k], 0.01, regions[i].limits_y[0]);
+#endif
+		}
+
+		if (!regions[i].local_current.moving_window)
+			current_reduction_x_openacc(&regions[i].local_current, device);
+	}
+
+	#pragma omp for schedule(static, 1)
+	for(int i = 0; i < n_regions; i++)
+	{
+		const int device = i % _num_gpus;
+		acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
+
+		for (int k = 0; k < regions[i].n_species; k++)
+			spec_sort_openacc(&regions[i].species[k], regions[i].limits_y, device);
+		current_reduction_y_openacc(&regions[i].local_current, device);
 	}
 
 	if (regions[0].local_current.smooth.xtype != NONE)
 	{
-		#pragma omp for schedule(static)
+		#pragma omp for schedule(static, 1)
 		for(int i = 0; i < n_regions; i++)
 		{
-			acc_set_device_num(i / regions_per_gpu, DEVICE_TYPE);
-			current_smooth_x_openacc(&regions[i].local_current,i / regions_per_gpu);
+			const int device = i % _num_gpus;
+			acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
+			current_smooth_x_openacc(&regions[i].local_current, device);
 		}
 
-		#pragma omp for schedule(static)
-		for(int i = 0; i < n_regions; i++)
-		{
-			acc_set_device_num(i / regions_per_gpu, DEVICE_TYPE);
-			current_gc_update_y_openacc(&regions[i].local_current, i / regions_per_gpu);
-		}
+//		#pragma omp for schedule(static, 1)
+//		for(int i = 0; i < n_regions; i++)
+//		{
+//			const int device = i % _num_gpus;
+//			acc_set_device_num(i % _num_gpus, DEVICE_TYPE);
+//			current_gc_update_y_openacc(&regions[i].local_current, device);
+//		}
 	}
 
 	if (regions[0].local_current.smooth.ytype != NONE)
 	{
 		for (int k = 0; k < regions[0].local_current.smooth.ylevel; k++)
 		{
-			#pragma omp for schedule(static)
+			#pragma omp for schedule(static, 1)
 			for(int i = 0; i < n_regions; i++)
-			{
-				acc_set_device_num(i / regions_per_gpu, DEVICE_TYPE);
 				current_smooth_y(&regions[i].local_current, BINOMIAL);
-			}
 
-			#pragma omp for schedule(static)
+			#pragma omp for schedule(static, 1)
 			for(int i = 0; i < n_regions; i++)
 			{
-				acc_set_device_num(i / regions_per_gpu, DEVICE_TYPE);
-				current_gc_update_y_openacc(&regions[i].local_current, i / regions_per_gpu);
+				const int device = i % _num_gpus;
+				acc_set_device_num(device, DEVICE_TYPE);
+				current_gc_update_y_openacc(&regions[i].local_current, device);
 			}
 		}
 
 		if (regions[0].local_current.smooth.ytype == COMPENSATED)
 		{
-			#pragma omp for schedule(static)
+			#pragma omp for schedule(static, 1)
 			for(int i = 0; i < n_regions; i++)
-			{
-				acc_set_device_num(i / regions_per_gpu, DEVICE_TYPE);
 				current_smooth_y(&regions[i].local_current, COMPENSATED);
-			}
 
-			#pragma omp for schedule(static)
+			#pragma omp for schedule(static, 1)
 			for(int i = 0; i < n_regions; i++)
 			{
-				acc_set_device_num(i / regions_per_gpu, DEVICE_TYPE);
-				current_gc_update_y_openacc(&regions[i].local_current, i / regions_per_gpu);
+				const int device = i % _num_gpus;
+
+				acc_set_device_num(device, DEVICE_TYPE);
+				current_gc_update_y_openacc(&regions[i].local_current, device);
 			}
 		}
 	}
 
-	#pragma omp for schedule(static)
+	#pragma omp for schedule(static, 1)
 	for(int i = 0; i < n_regions; i++)
 	{
-		acc_set_device_num(i / regions_per_gpu, DEVICE_TYPE);
-		emf_advance_openacc(&regions[i].local_emf, &regions[i].local_current, i / regions_per_gpu);
+		const int device = i % _num_gpus;
+		acc_set_device_num(device, DEVICE_TYPE);
+		emf_advance_openacc(&regions[i].local_emf, &regions[i].local_current, device);
 	}
 
-	#pragma omp for schedule(static)
+	#pragma omp for schedule(static, 1)
 	for(int i = 0; i < n_regions; i++)
 	{
-		acc_set_device_num(i / regions_per_gpu, DEVICE_TYPE);
-		emf_update_gc_y_openacc(&regions[i].local_emf, i / regions_per_gpu);
+		const int device = i % _num_gpus;
+		acc_set_device_num(device, DEVICE_TYPE);
+		emf_update_gc_y_openacc(&regions[i].local_emf, device);
 	}
 }

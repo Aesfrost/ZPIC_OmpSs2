@@ -18,9 +18,9 @@
 #ifdef ENABLE_PREFETCH
 #include <cuda.h>
 
-void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
+void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device, void *stream)
 {
-	cudaMemPrefetchAsync(buf, size * sizeof(t_vfld), device, NULL);
+	cudaMemPrefetchAsync(buf, size * sizeof(t_vfld), device, stream);
 }
 #endif
 
@@ -36,7 +36,7 @@ void yee_b_openacc(t_emf *emf, const float dt)
 	dt_dy = dt / emf->dx[1];
 
 	// Canonical implementation
-	#pragma acc parallel loop independent tile(4, 4)
+	#pragma acc parallel loop independent tile(16, 16)
 	for (int j = -1; j <= emf->nx[1]; j++)
 	{
 		for (int i = -1; i <= emf->nx[0]; i++)
@@ -65,7 +65,7 @@ void yee_e_openacc(t_emf *emf, const t_current *current, const float dt)
 	const t_vfld *const restrict J = current->J;
 
 	// Canonical implementation
-	#pragma acc parallel loop independent tile(4, 4)
+	#pragma acc parallel loop independent tile(16, 16)
 	for (int j = 0; j <= emf->nx[1] + 1; j++)
 	{
 		for (int i = 0; i <= emf->nx[0] + 1; i++)
@@ -133,12 +133,10 @@ void emf_update_gc_y_openacc(t_emf *emf, const int device)
 	t_vfld *const restrict B_overlap = emf->B_upper;
 
 #ifdef ENABLE_PREFETCH
+	void *stream = NULL;
 	const int size_overlap = emf->overlap_size;
-	const int size = emf->total_size;
-	emf_prefetch_openacc(emf->B_buf, size, device);
-	emf_prefetch_openacc(emf->E_buf, size, device);
-	emf_prefetch_openacc(E_overlap, size_overlap, device);
-	emf_prefetch_openacc(B_overlap, size_overlap, device);
+	emf_prefetch_openacc(E_overlap, size_overlap, device, stream);
+	emf_prefetch_openacc(B_overlap, size_overlap, device, stream);
 #endif
 
 	// y
@@ -216,12 +214,6 @@ void emf_move_window_openacc(t_emf *emf)
 void emf_advance_openacc(t_emf *emf, const t_current *current, const int device)
 {
 	const float dt = emf->dt;
-
-#ifdef ENABLE_PREFETCH
-	emf_prefetch_openacc(emf->B_buf, emf->total_size, device);
-	emf_prefetch_openacc(emf->E_buf, emf->total_size, device);
-	current_prefetch_openacc(current->J_buf, current->total_size, device);
-#endif
 
 	// Advance EM field using Yee algorithm modified for having E and B time centered
 	yee_b_openacc(emf, dt / 2.0f);

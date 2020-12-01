@@ -89,7 +89,7 @@ void current_gc_update_y_openacc(t_current *current, const int device);
 
 // Prefetch
 #ifdef ENABLE_PREFETCH
-void current_prefetch_openacc(t_vfld *buf, const size_t size, const int device);
+void current_prefetch_openacc(t_vfld *buf, const size_t size, const int device, void *stream);
 #endif
 
 #endif

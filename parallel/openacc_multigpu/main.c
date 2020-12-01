@@ -29,8 +29,11 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-#include "input/weibel-500-151M-1024-1024.c"
-// #include "input/lwfa-8000-74M-4000-2048.c"
+//#include "input/weibel-1000-151M-2048-2048.c"
+// #include "input/weibel-1000-452M-3072-3072.c"
+//#include "input/lwfa-8000-131M-4000-2048.c"
+//#include "input/lwfa-4000-16M-2000-512.c"
+#include "input/weibel-500-67M-512-512.c"
 
 int main(int argc, const char *argv[])
 {
@@ -60,8 +63,7 @@ int main(int argc, const char *argv[])
 	{
 		for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 		{
-//			if(n == 4) break;
-
+// 			if(n == 100) break;
 //			#pragma omp master
 //			{
 //				fprintf(stderr, "n = %i, t = %f\n", n, t);

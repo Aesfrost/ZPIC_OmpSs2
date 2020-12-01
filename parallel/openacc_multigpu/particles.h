@@ -23,6 +23,8 @@
 #define THREAD_BLOCK 320
 #define TILE_SIZE 16
 #define MAX_SPNAME_LEN 32
+#define EXTRA_NP 0.05 // Overallocation (fraction of the total)
+#define MAX_LEAVING_PART 0.2
 
 #define MAX_VALUE(x, y) x > y ? x : y
 #define MIN_VALUE(x, y) x < y ? x : y
@@ -55,9 +57,12 @@ typedef struct {
 typedef struct {
 	char name[MAX_SPNAME_LEN];
 
-	// Particle data buffer (CPU)
+	// Particle data buffer
 	t_particle_vector main_vector;
-	t_particle_vector incoming_part[3];    // Temporary buffer for incoming particles
+
+	// Temporary buffer for incoming particles
+	// 1 - From a lower region / 0 - From an upper region
+	t_particle_vector incoming_part[3];
 
 	// mass over charge ratio
 	t_part_data m_q;
@@ -94,6 +99,7 @@ typedef struct {
 	int n_move;
 
 	// Outgoing particles
+	// 0 - Going down / 1 - Going up
 	t_particle_vector *outgoing_part[2];
 
 	// Sort
@@ -138,8 +144,12 @@ void spec_move_window_openacc(t_species *restrict spec, const int limits_y[2], c
 void spec_check_boundaries_openacc(t_species *restrict spec, const int limits_y[2], const int device);
 void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device);
 
+#ifdef ENABLE_LD_BALANCE
+void spec_load_balance(t_species *spec_lower, t_species *spec_upper, const float threshold, const int region_offset);
+#endif
+
 #ifdef ENABLE_PREFETCH
-void spec_prefetch_openacc(t_particle_vector *part, const int n_tiles_x, const int n_tiles_y, const int device);
+void spec_prefetch_openacc(t_particle_vector *part, const int device, void *stream);
 #endif
 
 /*********************************************************************************************
@@ -164,7 +174,7 @@ void spec_rep_pha(const t_part_data *buffer, const int rep_type, const int pha_n
 		const float pha_range[][2], const int iter_num, const float dt, const char path[128]);
 
 // Charge map
-void spec_deposit_charge(const t_species *spec, float *charge);
+void spec_deposit_charge(const t_species *spec, t_part_data *charge);
 void spec_rep_charge(t_part_data *restrict charge, const int true_nx[2], const t_fld box[2],
 		const int iter_num, const float dt, const bool moving_window, const char path[128]);
 

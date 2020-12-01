@@ -14,26 +14,11 @@
 #define LOCAL_BUFFER_SIZE 1024
 #define MIN_VALUE(x, y) x < y ? x : y
 
-#ifdef ENABLE_PREFETCH
-void current_prefetch_openacc(t_vfld *buf, const size_t size, const int device)
-{
-	cudaMemPrefetchAsync(buf, size * sizeof(t_vfld), device, NULL);
-}
-#endif
-
 // Set the current buffer to zero
 void current_zero_openacc(t_current *current, const int device)
 {
 	// zero fields
 	const int size = current->total_size;
-
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
-#ifdef ENABLE_PREFETCH
-	current_prefetch_openacc(current->J_buf, current->total_size, device);
-#endif
 
 	#pragma acc parallel loop
 	for(int i = 0; i < size; i++)
@@ -50,17 +35,6 @@ void current_reduction_y_openacc(t_current *current, const int device)
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
 	t_vfld *restrict const J_overlap = current->J_upper;
-
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
-#ifdef ENABLE_PREFETCH
-	const int size_overlap = current->overlap_size;
-	const int size = current->total_size;
-	current_prefetch_openacc(current->J_buf, size, device);
-	current_prefetch_openacc(J_overlap, size_overlap, device);
-#endif
 
 	#pragma acc parallel loop independent collapse(2)
 	for (int j = -current->gc[1][0]; j < current->gc[1][1]; j++)
@@ -82,15 +56,6 @@ void current_reduction_x_openacc(t_current *current, const int device)
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
 	t_vfld *restrict const J_overlap = &current->J[current->nx[0]];
-
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
-#ifdef ENABLE_PREFETCH
-	const int size = current->total_size;
-	current_prefetch_openacc(current->J_buf, size, device);
-#endif
 
 	#pragma acc parallel loop independent collapse(2)
 	for (int j = -current->gc[1][0]; j < current->nx[1] + current->gc[1][1]; j++)
@@ -115,17 +80,6 @@ void current_gc_update_y_openacc(t_current *current, const int device)
 	t_vfld *restrict const J = current->J;
 	t_vfld *restrict const J_overlap = current->J_upper;
 
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
-#ifdef ENABLE_PREFETCH
-	const int size_overlap = current->overlap_size;
-	const int size = current->total_size;
-	current_prefetch_openacc(J, size, device);
-	current_prefetch_openacc(J_overlap, size_overlap, device);
-#endif
-
 	#pragma acc parallel loop independent collapse(2)
 	for (int i = -current->gc[0][0]; i < current->nx[0] + current->gc[0][1]; i++)
 	{
@@ -149,14 +103,6 @@ void current_smooth_x_openacc(t_current *current, const int device)
 	const int size = current->total_size;
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
-
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
-#ifdef ENABLE_PREFETCH
-	current_prefetch_openacc(current->J_buf, size, device);
-#endif
 
 	t_fld sa = 0.25;
 	t_fld sb = 0.5;

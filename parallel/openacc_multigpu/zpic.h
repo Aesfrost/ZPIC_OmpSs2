@@ -11,7 +11,21 @@
 #define __ZPIC__
 
 #include <openacc.h>
+
+// NVIDIA GPUs
 #define DEVICE_TYPE acc_device_nvidia
+
+#define TILE_SIZE 16
+
+// Extra ghost cells in order to particles to continue
+// in their assigned region even if they are some cells
+// outside. Asymmetrical (only in upper side of the region).
+// Should be multiple of TILE_SIZE
+#ifdef ENABLE_LD_BALANCE
+#define EXTRA_GC 32
+#else
+#define EXTRA_GC 0
+#endif
 
 typedef float t_fld;
 typedef float t_part_data;

@@ -27,33 +27,12 @@ typedef struct {
  Utilities
  *********************************************************************************************/
 
-// Prefetching for particle vector
-#ifdef ENABLE_PREFETCH
-void spec_prefetch_openacc(t_particle_vector *part, const int device)
-{
-	cudaMemPrefetchAsync(part->ix, part->size_max * sizeof(int), device, NULL);
-	cudaMemPrefetchAsync(part->iy, part->size_max * sizeof(int), device, NULL);
-	cudaMemPrefetchAsync(part->x, part->size_max * sizeof(t_part_data), device, NULL);
-	cudaMemPrefetchAsync(part->y, part->size_max * sizeof(t_part_data), device, NULL);
-	cudaMemPrefetchAsync(part->ux, part->size_max * sizeof(t_part_data), device, NULL);
-	cudaMemPrefetchAsync(part->uy, part->size_max * sizeof(t_part_data), device, NULL);
-	cudaMemPrefetchAsync(part->uz, part->size_max * sizeof(t_part_data), device, NULL);
-	cudaMemPrefetchAsync(part->invalid, part->size_max * sizeof(bool), device, NULL);
-}
-#endif
-
-
 // Add the block offset to the vector
 #pragma oss task device(openacc) inout(vector[0; vector_size]) inout(block_sum[0; num_blocks]) \
 	label("Prefix Sum (GPU, Add)")
 void add_block_sum(int *restrict vector, int *restrict block_sum, const int num_blocks,
         const int block_size, const int vector_size, const int device)
 {
-
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
 	#pragma acc parallel loop gang
 	for (int block_id = 1; block_id < num_blocks; block_id++)
 	{
@@ -71,10 +50,6 @@ void add_block_sum(int *restrict vector, int *restrict block_sum, const int num_
 void prefix_sum_min(int *restrict vector, int *restrict block_sum, const int num_blocks,
         const int size, const int device)
 {
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
 	// Prefix sum using a binomial tree
 	#pragma acc parallel loop gang vector_length(MIN_WARP_SIZE)
 	for (int block_id = 0; block_id < num_blocks; block_id++)
@@ -131,10 +106,6 @@ void prefix_sum_min(int *restrict vector, int *restrict block_sum, const int num
 void prefix_sum_full(int *restrict vector, int *restrict block_sum, const int num_blocks,
         const int size, const int device)
 {
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
 	// Prefix sum using a binomial tree
 	#pragma acc parallel loop gang vector_length(LOCAL_BUFFER_SIZE / 2)
 	for (int block_id = 0; block_id < num_blocks; block_id++)
@@ -247,10 +218,6 @@ void spec_move_vector_int_full(int *restrict vector, int *restrict new_pos, cons
 void spec_move_vector_int(int *restrict vector, int *restrict temp, int *restrict source_idx,
         int *restrict target_idx, const int move_size, const int device)
 {
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
 	#pragma acc parallel loop
 	for (int i = 0; i < move_size; i++)
 		if (source_idx[i] >= 0) temp[i] = vector[source_idx[i]];
@@ -283,11 +250,6 @@ void spec_move_vector_float_full(float *restrict vector, int *restrict new_pos, 
 void spec_move_vector_float(float *restrict vector, float *restrict temp, int *restrict source_idx,
         int *restrict target_idx, const int move_size, const int device)
 {
-
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
 	#pragma acc parallel loop
 	for (int i = 0; i < move_size; i++)
 		if (source_idx[i] >= 0) temp[i] = vector[source_idx[i]];
@@ -317,16 +279,6 @@ void spec_organize_in_tiles(t_species *spec, const int limits_y[2], const int de
 	int *restrict tile_offset = spec->tile_offset;
 
 	int *restrict pos = alloc_align_buffer(DEFAULT_ALIGNMENT, size * sizeof(int));
-
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
-#ifdef ENABLE_PREFETCH
-	spec_prefetch_openacc(&spec->main_vector, device);
-	cudaMemPrefetchAsync(pos, size * sizeof(int), device, NULL);
-	cudaMemPrefetchAsync(spec->tile_offset, (n_tiles_x * n_tiles_y + 1) * sizeof(int), device, NULL);
-#endif
 
 	// Calculate the histogram (number of particles per tile)
 	#pragma acc parallel loop private(ix, iy)
@@ -626,18 +578,6 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 	const int nrow = emf->nrow;
 	const int region_offset = limits_y[0];
 
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
-#ifdef ENABLE_PREFETCH
-	spec_prefetch_openacc(&spec->main_vector, device);
-	cudaMemPrefetchAsync(spec->tile_offset, (spec->n_tiles_x * spec->n_tiles_y + 1) * sizeof(int), device, NULL);
-	current_prefetch_openacc(current->J_buf, current->total_size, device);
-	emf_prefetch_openacc(emf->B_buf, emf->total_size, device);
-	emf_prefetch_openacc(emf->E_buf, emf->total_size, device);
-#endif
-
 	// Advance particles
 	#pragma acc parallel loop gang collapse(2) vector_length(THREAD_BLOCK)
 	for(int tile_y = 0; tile_y < spec->n_tiles_y; tile_y++)
@@ -865,14 +805,6 @@ void spec_move_window_openacc(t_species *restrict spec, const int limits_y[2], c
 	{
 		const int size = spec->main_vector.size;
 
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
-#ifdef ENABLE_PREFETCH
-		spec_prefetch_openacc(&spec->main_vector, device);
-#endif
-
 		// Shift particles left
 		#pragma acc parallel loop
 		for(int i = 0; i < size; i++)
@@ -899,17 +831,6 @@ void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2], const
 {
 	const int nx0 = spec->nx[0];
 	const int nx1 = spec->nx[1];
-
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
-#ifdef ENABLE_PREFETCH
-	spec_prefetch_openacc(&spec->main_vector, device);
-	cudaMemPrefetchAsync(spec->tile_offset, (spec->n_tiles_x * spec->n_tiles_y + 1) * sizeof(int), device, NULL);
-	spec_prefetch_openacc(spec->outgoing_part[1], device);
-	spec_prefetch_openacc(spec->outgoing_part[0], device);
-#endif
 
 	// Check if particles are exiting the left boundary (periodic boundary)
 	#pragma acc parallel loop gang vector_length(128)
@@ -1118,10 +1039,6 @@ void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_of
 {
 	const int n_tiles = n_tiles_x * n_tiles_y;
 
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
 	// Reset the number of particles per tile
 	#pragma acc parallel loop
 	for (int i = 0; i < n_tiles; i++)
@@ -1222,10 +1139,6 @@ void histogram_moving_particles(t_particle_vector *part_vector, int *restrict ti
 		int *restrict np_leaving, const int n_tiles, const int n_tiles_x, const int offset_region,
 		const int old_size, const int device)
 {
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
 	#pragma acc parallel loop gang
 	for(int tile_idx = 0; tile_idx < n_tiles; tile_idx++)
 	{
@@ -1262,10 +1175,6 @@ void calculate_sorted_idx(t_particle_vector *part_vector, int *restrict tile_off
 {
 	const int n_tiles = n_tiles_x * n_tiles_y;
 	const int size = part_vector->size;
-
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
 
 	#pragma acc parallel loop
 	for(int i = 0; i < sorting_size; i++)
@@ -1395,10 +1304,6 @@ void merge_particles_buffers(t_particle_vector *part_vector, t_particle_vector *
 		int *restrict counter, int *restrict target_idx, const int n_tiles_x, const int n_tiles,
 		const int offset_region, const int sorting_size, const int device)
 {
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
 	for(int n = 0; n < 3; n++)
 	{
 		if(incoming_part[n].enable_vector)
@@ -1439,10 +1344,6 @@ void merge_particles_buffers(t_particle_vector *part_vector, t_particle_vector *
 void reset_invalid_part(bool *restrict invalid_mark, int *restrict source_idx,
         int *restrict target_idx, const int sorting_size, const int device)
 {
-#ifdef MANUAL_GPU_SETUP
-	acc_set_device_num(device, DEVICE_TYPE);
-#endif
-
 	#pragma acc parallel loop
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) invalid_mark[target_idx[i]] = false;
@@ -1513,14 +1414,6 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 		const int new_size = ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024;
 		part_vector_realloc(&spec->main_vector, new_size);
 	}
-
-#ifdef ENABLE_PREFETCH
-	cudaMemPrefetchAsync(spec->tile_offset, (n_tiles + 1) * sizeof(int), device, NULL);
-	spec_prefetch_openacc(&spec->main_vector, device);
-
-	for(int i = 0; i < 3; i++)
-		if(spec->incoming_part[i].enable_vector) spec_prefetch_openacc(&spec->incoming_part[i], device);
-#endif
 
 	// Calculate the new offset (in the particle vector) for the tiles
 	histogram_np_per_tile(&spec->main_vector, spec->tile_offset, spec->incoming_part, np_per_tile,

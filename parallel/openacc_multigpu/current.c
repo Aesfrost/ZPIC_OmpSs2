@@ -26,8 +26,11 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 	int i;
 
 	// Number of guard cells for linear interpolation
+#ifdef ENABLE_LD_BALANCE
+	int gc[2][2] = {{1, 2}, {1, EXTRA_GC + 2}};
+#else
 	int gc[2][2] = {{1, 2}, {1, 2}};
-
+#endif
 	// Allocate global array
 	size_t size;
 

@@ -14,12 +14,6 @@ TARGET = zpic
 
 all : $(TARGET)
 
-manualsetup : CFLAGS += -DMANUAL_GPU_SETUP
-manualsetup : all
-
-prefetch : CFLAGS += -DENABLE_PREFETCH --cuda
-prefetch : manualsetup
-
 valgrind: $(SOURCE) $(KERNELS)
 	gcc $^ $(INCLUDES) -o $(TARGET) -O3 -std=c99 -g $(LDFLAGS) -Wall
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=log.txt ./$(TARGET) 4 0.5 2

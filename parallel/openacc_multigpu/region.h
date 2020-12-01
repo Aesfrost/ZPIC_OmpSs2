@@ -16,12 +16,9 @@
 #include "emf.h"
 #include "current.h"
 
-// The GPU regions are setup a little bit different than a normal (CPU) regions. First, we define the percentage of regions that
-// will be dedicated to the GPU (e.g., 50% of the all the regions), obtaining the total size of the GPU block.
-// Then, we split this block by the number of GPU regions (as being defined previously).
-// For example, if GPU percentage = 50%, Number of GPU regions = 2 and Number of regions in total = 64,
-// there will be 32 CPU regions and 2 GPU regions, but each GPU have a size equal to 16 CPU regions.
-
+#ifdef ENABLE_LD_BALANCE
+#define LD_BALANCE_FREQ 10
+#endif
 // The regions are stored in a double linked list
 typedef struct Region
 {
@@ -48,7 +45,7 @@ typedef struct Region
 
 void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, t_species *spec,
 		float box[], float dt, t_region *prev_region, t_region *next_region);
-void region_init(t_region *region, const int regions_per_gpu);
+void region_init(t_region *region);
 void region_set_moving_window(t_region *region);
 void region_add_laser(t_region *region, t_emf_laser *laser);
 void region_delete(t_region *region);

@@ -48,10 +48,6 @@ int main(int argc, const char *argv[])
 	int n;
 	float t;
 
-#ifdef MANUAL_GPU_SETUP
-	printf("Manual Setup...\n");
-#endif
-
 	fprintf(stderr, "Starting simulation ...\n\n");
 
 	uint64_t t0, t1;

@@ -156,12 +156,8 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 
 		_n_regions = n_regions;
 		_effective_gpu_regions = gpu_percentage * n_regions;
-
-#ifdef MANUAL_GPU_SETUP
 		_num_gpus = acc_get_num_devices(DEVICE_TYPE);
-#else
-		_num_gpus = 1;
-#endif
+
 	}
 }
 

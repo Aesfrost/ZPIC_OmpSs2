@@ -325,12 +325,17 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	spec->energy = 0;
 
 	// Initialize particle buffer
-	part_vector_alloc(&spec->main_vector, (npc * (2 + region_size) * nx[0] / 1024 + 1) * 1024);
+	part_vector_alloc(&spec->main_vector, ((1 + EXTRA_NP) * npc * region_size * nx[0] / 1024 + 1) * 1024);
 
+#ifdef ENABLE_LD_BALANCE
+	// Initialize temp buffer
+	for (i = 0; i < 2; i++)
+		part_vector_alloc(&spec->incoming_part[i], (npc * (1 + TILE_SIZE / 4) * nx[0] / 1024 + 1) * 1024);
+#else
 	// Initialize temp buffer
 	for (i = 0; i < 2; i++)
 		part_vector_alloc(&spec->incoming_part[i], (npc * nx[0] / 1024 + 1) * 1024);
-
+#endif
 	spec->incoming_part[2].enable_vector = false;
 
 	// Initialize density profile
@@ -377,14 +382,21 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 
 	// Sort
 	spec->n_tiles_x = ceil((float) spec->nx[0] / TILE_SIZE);
+
+#ifdef ENABLE_LD_BALANCE
+	spec->n_tiles_y = (EXTRA_GC / TILE_SIZE) + ceil((float) region_size / TILE_SIZE);
+#else
 	spec->n_tiles_y = ceil((float) region_size / TILE_SIZE);
-	spec->tile_offset = NULL;
+#endif
+
+	const int n_tiles = spec->n_tiles_x * spec->n_tiles_y;
+	spec->tile_offset = calloc((n_tiles + 1), sizeof(int));
 }
 
 void spec_delete(t_species *spec)
 {
 	part_vector_free(&spec->main_vector);
-	if (spec->tile_offset) free(spec->tile_offset);
+	free(spec->tile_offset);
 
 	for(int n = 0; n < 3; n++)
 		if(spec->incoming_part[n].enable_vector)
@@ -853,17 +865,23 @@ void spec_post_processing(t_species *spec, const int limits_y[2])
 // Deposit the particle charge over the simulation grid
 void spec_deposit_charge(const t_species *spec, t_part_data *charge)
 {
-	int i;
+	const int nx1 = spec->nx[1];
 
 	// Charge array is expected to have 1 guard cell at the upper boundary
 	int nrow = spec->nx[0] + 1;
 	t_part_data q = spec->q;
 
-	for (i = 0; i < spec->main_vector.size; i++)
+	for (int i = 0; i < spec->main_vector.size; i++)
 	{
 		if (spec->main_vector.invalid[i]) continue;
 
-		int idx = spec->main_vector.ix[i] + nrow * spec->main_vector.iy[i];
+		int ix = spec->main_vector.ix[i];
+		int iy = spec->main_vector.iy[i];
+
+		if (iy < 0) iy += nx1;
+		else if (iy >= nx1) iy -= nx1;
+
+		int idx = ix + iy * nrow;
 		t_fld w1, w2;
 
 		w1 = spec->main_vector.x[i];
@@ -874,7 +892,6 @@ void spec_deposit_charge(const t_species *spec, t_part_data *charge)
 		charge[idx + nrow] += (1.0f - w1) * (w2) * q;
 		charge[idx + 1 + nrow] += (w1) * (w2) * q;
 	}
-
 }
 
 /*********************************************************************************************

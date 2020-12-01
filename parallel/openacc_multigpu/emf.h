@@ -13,7 +13,6 @@
 #define __EMF__
 
 #include "zpic.h"
-
 #include "current.h"
 
 enum emf_diag {
@@ -109,7 +108,7 @@ void emf_update_gc_y_openacc(t_emf *emf, const int device);
 
 // Prefetch
 #ifdef ENABLE_PREFETCH
-void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device);
+void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device, void *stream);
 #endif
 
 

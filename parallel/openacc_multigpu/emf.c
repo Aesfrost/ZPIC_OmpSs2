@@ -35,8 +35,11 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 	int i;
 
 	// Number of guard cells for linear interpolation
+#ifdef ENABLE_LD_BALANCE
+	int gc[2][2] = {{1, 2}, {1, EXTRA_GC + 2}};
+#else
 	int gc[2][2] = {{1, 2}, {1, 2}};
-
+#endif
 	// Allocate global arrays
 	size_t size;
 

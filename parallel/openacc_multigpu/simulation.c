@@ -93,7 +93,7 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	}
 
 	for(int i = 0; i < n_regions; i++)
-		region_init(&sim->regions[i], n_regions / acc_get_num_devices(DEVICE_TYPE));
+		region_init(&sim->regions[i]);
 
 	// Cleaning
 	for (int n = 0; n < n_species; ++n)
