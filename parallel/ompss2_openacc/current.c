@@ -21,7 +21,7 @@
 /*********************************************************************************************
  Constructor / Destructor
  *********************************************************************************************/
-void current_new(t_current *current, int nx[], t_fld box[], float dt)
+void current_new(t_current *current, int nx[], t_fld box[], float dt, const int device)
 {
 	int i;
 
@@ -35,10 +35,13 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 	current->total_size = size;
 	current->overlap_size = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + gc[1][1]);
 
-	current->J_buf = alloc_align_buffer(DEFAULT_ALIGNMENT, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
-	assert(current->J_buf);
+	if(device >= 0)
+		current->J_buf = alloc_device_buffer(size * sizeof(t_vfld), device);
+	else
+		current->J_buf = malloc(size * sizeof(t_vfld));
 
-	memset(current->J_buf, 0, (size / 1024 + 1) * 1024 * sizeof(t_vfld));
+	assert(current->J_buf);
+	memset(current->J_buf, 0, size * sizeof(t_vfld));
 
 	// store nx and gc values
 	for (i = 0; i < 2; i++)
@@ -69,9 +72,11 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt)
 	current->moving_window = 0;
 }
 
-void current_delete(t_current *current)
+void current_delete(t_current *current, const bool is_on_device)
 {
-	free_align_buffer(current->J_buf);
+	if(is_on_device) free_device_buffer(current->J_buf);
+	else free(current->J_buf);
+
 	current->J_buf = NULL;
 }
 

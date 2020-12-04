@@ -78,8 +78,8 @@ typedef struct {
 } t_emf_laser;
 
 // Setup
-void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt);
-void emf_delete(t_emf *emf);
+void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt, const int device);
+void emf_delete(t_emf *emf, const bool is_on_device);
 void emf_overlap_zone(t_emf *emf, t_emf *upper);
 void emf_add_laser(t_emf *const emf, t_emf_laser *laser, int offset_y);
 void div_corr_x(t_emf *emf);
@@ -114,19 +114,13 @@ void emf_update_gc_y(t_emf *emf);
 void emf_update_gc_x(t_emf *emf);
 
 // OpenAcc Tasks
-void emf_advance_openacc(t_emf *emf, const t_current *current, const int device);
+void emf_advance_openacc(t_emf *emf, const t_current *current);
 
 #pragma oss task inout(emf->B_buf[0; emf->overlap_size]) \
 inout(emf->B_upper[-emf->gc[0][0]; emf->overlap_size]) \
 inout(emf->E_buf[0; emf->overlap_size]) \
 inout(emf->E_upper[-emf->gc[0][0]; emf->overlap_size]) \
 label("EMF Update GC (GPU)") device(openacc)
-void emf_update_gc_y_openacc(t_emf *emf, const int device);
-
-// Prefetch
-#ifdef ENABLE_PREFETCH
-void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device);
-#endif
-
+void emf_update_gc_y_openacc(t_emf *emf);
 
 #endif

@@ -18,7 +18,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <assert.h>
-//#include <nanos6.h>
+#include <nanos6.h>
+
+#ifdef TEST
+#include <openacc.h>
+#endif
 
 #include "zdf.h"
 #include "simulation.h"
@@ -56,7 +60,7 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 		t_species *species, int n_species, char name[64], int n_regions, float gpu_percentage,
 		int n_gpu_regions)
 {
-	#pragma acc set device_num(0) // Dummy operation to work with the PGI Compiler
+//	#pragma acc set device_num(0) // Dummy operation to work with the PGI Compiler
 
 	// Simulation parameters
 	sim->iter = 0;
@@ -93,7 +97,7 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 
 	// Cleaning
 	for (int n = 0; n < n_species; ++n)
-		spec_delete(&species[n]);
+		spec_delete(&species[n], false);
 
 	// Link adjacent regions
 	t_region *restrict region = sim->first_region;
@@ -392,9 +396,8 @@ void sim_report_emf_csv(t_simulation *sim)
 void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int n_iterations)
 {
 	int npart = 0;
-	int n_regions = 0;
 	int gpu_regions = 0;
-	int n_threads = 12; //nanos6_get_num_cpus();
+	int n_threads = nanos6_get_num_cpus();
 
 	t_region *restrict region = sim->first_region;
 	do
@@ -402,10 +405,10 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 		for (int i = 0; i < sim->first_region->n_species; i++)
 			npart += region->species[i].main_vector.size;
 		region = region->next;
-		n_regions++;
 		if (region->enable_gpu) gpu_regions++;
 	} while (region->id != 0);
 
+#ifndef TEST
 	fprintf(stdout, "Simulation: %s\n", sim->name);
 	fprintf(stdout, "Number of regions (Total): %d\n", get_n_regions());
 	fprintf(stdout, "Number of regions (GPU): %d (effective: %d regions)\n", gpu_regions,
@@ -431,6 +434,12 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 //		fprintf(stderr, "Particle advance [nsec/part] = %f \n", 1.e9 * perf);
 //		fprintf(stderr, "Particle advance [Mpart/sec] = %f \n", 1.e-6 / perf);
 //	}
+
+#else
+	fprintf(stdout, "%s,%d,%f,%d,%d,%d,%d,%f\n", sim->name, get_n_regions(),
+	        (float) get_gpu_regions_effective() / get_n_regions(), gpu_regions, n_threads,
+	        acc_get_num_devices(acc_device_nvidia), TILE_SIZE, timer_interval_seconds(t0, t1));
+#endif
 }
 
 // Save the grid quantity to a ZDF file

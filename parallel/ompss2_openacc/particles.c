@@ -22,6 +22,7 @@
 #include "utilities.h"
 #include "zdf.h"
 #include "timer.h"
+#include "assert.h"
 
 static double _spec_time = 0.0;
 static double _spec_npush = 0.0;
@@ -48,54 +49,104 @@ double spec_perf(void)
  * Vector Utilities
  *********************************************************************************************/
 
-void part_vector_alloc(t_particle_vector *vector, const int size_max)
+// Manual reallocation of a buffer aligned in the memory
+void realloc_buffer(void **restrict ptr, const size_t old_size, const size_t new_size,
+		const size_t type_size)
 {
-	 vector->ix = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(int));
-	 vector->iy = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(int));
-	 vector->x = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
-	 vector->y = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
-	 vector->ux = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
-	 vector->uy = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
-	 vector->uz = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(t_part_data));
-	 vector->invalid = alloc_align_buffer(DEFAULT_ALIGNMENT, size_max * sizeof(bool));
+//	#pragma acc set device_num(0)
+	void *temp = malloc(new_size * type_size); // Allocate new buffer
+
+	if(temp)
+	{
+		memcpy(temp, *ptr, old_size * type_size); // Copy the data from the old buffer to the new one
+		free(*ptr); // Free the old buffer
+		*ptr = temp; // Point to the new buffer
+	}else
+	{
+		printf("Error in allocating vector. Exiting...\n");
+		exit(1);
+	}
+}
+
+void part_vector_alloc(t_particle_vector *vector, const int size_max, const int device)
+{
+	if(device >= 0)
+	{
+		 vector->ix = alloc_device_buffer(size_max * sizeof(int), device);
+		 vector->iy = alloc_device_buffer(size_max * sizeof(int), device);
+		 vector->x = alloc_device_buffer(size_max * sizeof(t_part_data), device);
+		 vector->y = alloc_device_buffer(size_max * sizeof(t_part_data), device);
+		 vector->ux = alloc_device_buffer(size_max * sizeof(t_part_data), device);
+		 vector->uy = alloc_device_buffer(size_max * sizeof(t_part_data), device);
+		 vector->uz = alloc_device_buffer(size_max * sizeof(t_part_data), device);
+		 vector->invalid = alloc_device_buffer(size_max * sizeof(bool), device);
+	}else
+	{
+		 vector->ix = malloc(size_max * sizeof(int));
+		 vector->iy = malloc(size_max * sizeof(int));
+		 vector->x = malloc(size_max * sizeof(t_part_data));
+		 vector->y = malloc(size_max * sizeof(t_part_data));
+		 vector->ux = malloc(size_max * sizeof(t_part_data));
+		 vector->uy = malloc(size_max * sizeof(t_part_data));
+		 vector->uz = malloc(size_max * sizeof(t_part_data));
+		 vector->invalid = malloc(size_max * sizeof(bool));
+	}
 
 	 vector->size_max = size_max;
 	 vector->size = 0;
 	 vector->enable_vector = true;
 }
 
-void part_vector_free(t_particle_vector *vector)
+void part_vector_free(t_particle_vector *vector, const bool is_on_device)
 {
-	 free_align_buffer(vector->ix);
-	 free_align_buffer(vector->iy);
-	 free_align_buffer(vector->x);
-	 free_align_buffer(vector->y);
-	 free_align_buffer(vector->ux);
-	 free_align_buffer(vector->uy);
-	 free_align_buffer(vector->uz);
-	 free_align_buffer(vector->invalid);
+	if(is_on_device)
+	{
+		 free_device_buffer(vector->ix);
+		 free_device_buffer(vector->iy);
+		 free_device_buffer(vector->x);
+		 free_device_buffer(vector->y);
+		 free_device_buffer(vector->ux);
+		 free_device_buffer(vector->uy);
+		 free_device_buffer(vector->uz);
+		 free_device_buffer(vector->invalid);
+	}else
+	{
+		 free(vector->ix);
+		 free(vector->iy);
+		 free(vector->x);
+		 free(vector->y);
+		 free(vector->ux);
+		 free(vector->uy);
+		 free(vector->uz);
+		 free(vector->invalid);
+	}
 }
 
-void part_vector_realloc(t_particle_vector *vector, const int new_size)
+void part_vector_realloc(t_particle_vector *vector, const int new_size, const int device)
 {
 	 vector->size_max = new_size;
 
-	 realloc_align_buffer((void**) &vector->ix, vector->size, vector->size_max, sizeof(int),
-						  DEFAULT_ALIGNMENT);
-	 realloc_align_buffer((void**) &vector->iy, vector->size, vector->size_max, sizeof(int),
-						  DEFAULT_ALIGNMENT);
-	 realloc_align_buffer((void**) &vector->x, vector->size, vector->size_max, sizeof(t_part_data),
-						  DEFAULT_ALIGNMENT);
-	 realloc_align_buffer((void**) &vector->y, vector->size, vector->size_max, sizeof(t_part_data),
-						  DEFAULT_ALIGNMENT);
-	 realloc_align_buffer((void**) &vector->ux, vector->size, vector->size_max, sizeof(t_part_data),
-						  DEFAULT_ALIGNMENT);
-	 realloc_align_buffer((void**) &vector->uy, vector->size, vector->size_max, sizeof(t_part_data),
-						  DEFAULT_ALIGNMENT);
-	 realloc_align_buffer((void**) &vector->uz, vector->size, vector->size_max, sizeof(t_part_data),
-						  DEFAULT_ALIGNMENT);
-	 realloc_align_buffer((void**) &vector->invalid, vector->size, vector->size_max, sizeof(bool),
-						  DEFAULT_ALIGNMENT);
+	if(device >= 0)
+	{
+		realloc_device_buffer((void**) &vector->ix, vector->size, vector->size_max, sizeof(int), device);
+		realloc_device_buffer((void**) &vector->iy, vector->size, vector->size_max, sizeof(int), device);
+		realloc_device_buffer((void**) &vector->x, vector->size, vector->size_max, sizeof(t_part_data), device);
+		realloc_device_buffer((void**) &vector->y, vector->size, vector->size_max, sizeof(t_part_data), device);
+		realloc_device_buffer((void**) &vector->ux, vector->size, vector->size_max, sizeof(t_part_data), device);
+		realloc_device_buffer((void**) &vector->uy, vector->size, vector->size_max, sizeof(t_part_data), device);
+		realloc_device_buffer((void**) &vector->uz, vector->size, vector->size_max, sizeof(t_part_data), device);
+		realloc_device_buffer((void**) &vector->invalid, vector->size, vector->size_max, sizeof(bool), device);
+	}else
+	{
+		realloc_buffer((void**) &vector->ix, vector->size, vector->size_max, sizeof(int));
+		realloc_buffer((void**) &vector->iy, vector->size, vector->size_max, sizeof(int));
+		realloc_buffer((void**) &vector->x, vector->size, vector->size_max, sizeof(t_part_data));
+		realloc_buffer((void**) &vector->y, vector->size, vector->size_max, sizeof(t_part_data));
+		realloc_buffer((void**) &vector->ux, vector->size, vector->size_max, sizeof(t_part_data));
+		realloc_buffer((void**) &vector->uy, vector->size, vector->size_max, sizeof(t_part_data));
+		realloc_buffer((void**) &vector->uz, vector->size, vector->size_max, sizeof(t_part_data));
+		realloc_buffer((void**) &vector->invalid, vector->size, vector->size_max, sizeof(bool));
+	}
 }
 
 void part_vector_assign_valid_part(const t_particle_vector *source, const int source_idx,
@@ -140,7 +191,7 @@ void spec_update_main_vector(t_species *spec)
 
 	// Check if buffer is large enough and if not reallocate
 	if (spec->main_vector.size + np_inj > spec->main_vector.size_max)
-		part_vector_realloc(&spec->main_vector, ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024);
+		part_vector_realloc(&spec->main_vector, ((spec->main_vector.size_max + np_inj) / 1024 + 1) * 1024, -1);
 
 	//Loop through all the 3 temporary buffers
 	for (k = 0; k < 3; k++)
@@ -286,7 +337,7 @@ void spec_inject_particles(t_particle_vector *part_vector, const int range[][2],
 
 	// Check if buffer is large enough and if not reallocate
 	if (start + np_inj > part_vector->size_max)
-		part_vector_realloc(part_vector, ((part_vector->size_max + np_inj) / 1024 + 1) * 1024);
+		part_vector_realloc(part_vector, ((part_vector->size_max + np_inj) / 1024 + 1) * 1024, -1);
 
 	// Set particle positions
 	spec_set_x(part_vector, range, ppc, part_density, dx, n_move);
@@ -298,7 +349,7 @@ void spec_inject_particles(t_particle_vector *part_vector, const int range[][2],
 // Constructor
 void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc[],
 		const t_part_data *ufl, const t_part_data *uth, const int nx[], t_part_data box[],
-		const float dt, t_density *density, const int region_size)
+		const float dt, t_density *density, const int region_size, const int device)
 {
 	int i, npc;
 
@@ -324,11 +375,11 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	spec->energy = 0;
 
 	// Initialize particle buffer
-	part_vector_alloc(&spec->main_vector, (npc * (2 + region_size) * nx[0] / 1024 + 1) * 1024);
+	part_vector_alloc(&spec->main_vector, (EXTRA_NP + 1) * npc * region_size * nx[0], device);
 
 	// Initialize temp buffer
 	for (i = 0; i < 2; i++)
-		part_vector_alloc(&spec->incoming_part[i], (npc * nx[0] / 1024 + 1) * 1024);
+		part_vector_alloc(&spec->incoming_part[i], npc * nx[0], device);
 
 	spec->incoming_part[2].enable_vector = false;
 
@@ -381,16 +432,16 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	spec->mv_part_offset = NULL;
 }
 
-void spec_delete(t_species *spec)
+void spec_delete(t_species *spec, const bool is_on_device)
 {
-	part_vector_free(&spec->main_vector);
+	part_vector_free(&spec->main_vector, is_on_device);
 
-	if (spec->tile_offset) free(spec->tile_offset);
-	if(spec->mv_part_offset) free(spec->mv_part_offset);
+	if (spec->tile_offset) free_device_buffer(spec->tile_offset);
+	if(spec->mv_part_offset) free_device_buffer(spec->mv_part_offset);
 
 	for(int n = 0; n < 3; n++)
 		if(spec->incoming_part[n].enable_vector)
-			part_vector_free(&spec->incoming_part[n]);
+			part_vector_free(&spec->incoming_part[n], is_on_device);
 }
 
 /*********************************************************************************************
@@ -841,7 +892,7 @@ void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const i
 		// If needed, add the incoming particles to a temporary vector
 		if(!spec->incoming_part[2].enable_vector)
 		{
-			part_vector_alloc(&spec->incoming_part[2], np_inj);
+			part_vector_alloc(&spec->incoming_part[2], np_inj, -1);
 			spec_inject_particles(&spec->incoming_part[2], range, spec->ppc, &spec->density,
 					spec->dx, spec->n_move, spec->ufl, spec->uth);
 		}else spec->incoming_part[2].size = np_inj; // Reuse the temporary vector (THIS ONLY WORKS IF THE INJECTED PARTICLES HAVE NO MOMENTUM)

@@ -15,7 +15,7 @@
 #define MIN_VALUE(x, y) x < y ? x : y
 
 // Set the current buffer to zero
-void current_zero_openacc(t_current *current, const int device)
+void current_zero_openacc(t_current *current)
 {
 	// zero fields
 	const int size = current->total_size;
@@ -30,7 +30,7 @@ void current_zero_openacc(t_current *current, const int device)
 }
 
 // Each region is only responsible to do the reduction operation (y direction) in its top edge (OpenAcc)
-void current_reduction_y_openacc(t_current *current, const int device)
+void current_reduction_y_openacc(t_current *current)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
@@ -51,7 +51,7 @@ void current_reduction_y_openacc(t_current *current, const int device)
 }
 
 // Current reduction between ghost cells in the x direction (OpenAcc)
-void current_reduction_x_openacc(t_current *current, const int device)
+void current_reduction_x_openacc(t_current *current)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
@@ -74,7 +74,7 @@ void current_reduction_x_openacc(t_current *current, const int device)
 }
 
 // Update the ghost cells in the y direction (only the upper zone, OpenAcc)
-void current_gc_update_y_openacc(t_current *current, const int device)
+void current_gc_update_y_openacc(t_current *current)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
@@ -98,7 +98,7 @@ void current_gc_update_y_openacc(t_current *current, const int device)
 
 // Apply multiple passes of a binomial filter to reduce noise (X direction).
 // Then, pass a compensation filter (if applicable). OpenAcc Task
-void current_smooth_x_openacc(t_current *current, const int device)
+void current_smooth_x_openacc(t_current *current)
 {
 	const int size = current->total_size;
 	const int nrow = current->nrow;

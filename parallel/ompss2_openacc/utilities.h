@@ -5,11 +5,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define DEFAULT_ALIGNMENT 1 << 12
-
-void realloc_align_buffer(void **restrict ptr, const size_t old_size, const size_t new_size,
-		const size_t type_size, const size_t alignment);
-void* alloc_align_buffer(const size_t alignment, const size_t size);
-void free_align_buffer(void *ptr);
+void realloc_device_buffer(void **restrict ptr, const size_t old_size, const size_t new_size,
+		const size_t type_size, const int device);
+void* alloc_device_buffer(const size_t size, const int device);
+void free_device_buffer(void *ptr);
 
 #endif /* UTILITIES_H_ */

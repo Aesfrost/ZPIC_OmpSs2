@@ -1,6 +1,6 @@
 # GCC options
 CC = pgimcc
-CFLAGS = --ompss-2 -O3 --openacc
+CFLAGS = --ompss-2 -O3 --openacc -DTEST -g
 
 #CC = pgcc
 #CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -cudalibs -Mcuda=ptxinfo -g
@@ -12,7 +12,13 @@ KERNELS = kernel_particles.c kernel_emf.c kernel_current.c
 SOURCE = current.c emf.c particles.c random.c timer.c main.c simulation.c zdf.c utilities.c region.c 
 TARGET = zpic
 
-all : $(TARGET)
+all: $(TARGET)
+
+prefetch: CFLAGS += -DENABLE_PREFETCH --cuda
+prefetch: all
+
+affinity: CFLAGS += -DENABLE_AFFINITY --cuda
+affinity: all
 
 valgrind: $(SOURCE) $(KERNELS)
 	gcc $^ $(INCLUDES) -o $(TARGET) -O3 -std=c99 -g $(LDFLAGS) -Wall

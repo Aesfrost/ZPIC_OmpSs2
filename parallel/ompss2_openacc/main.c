@@ -28,9 +28,11 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-#include "input/weibel-500-151M-1024-1024.c"
-// #include "input/lwfa-8000-74M-4000-2048.c"
+#include "input/weibel-1000-151M-2048-2048.c"
+//#include "input/lwfa-4000-16M-2000-512.c"
+//#include "input/warm-500-67M-512-512.c"
 
+//#pragma oss assert("version.dependencies==regions")
 int main(int argc, const char *argv[])
 {
 	if(argc != 4)
@@ -48,15 +50,16 @@ int main(int argc, const char *argv[])
 	int n;
 	float t;
 
+#ifndef TEST
 	fprintf(stderr, "Starting simulation ...\n\n");
+#endif
 
 	uint64_t t0, t1;
 	t0 = timer_ticks();
 
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-//		if(n == 50) break;
-
+//		if(n == 100) break;
 //		fprintf(stderr, "n = %i, t = %f\n", n, t);
 //
 //		if (report(n, sim.ndump))
@@ -73,7 +76,14 @@ int main(int argc, const char *argv[])
 	//sim_report(&sim);
 
 	t1 = timer_ticks();
+
+#ifdef ENABLE_AFFINITY
+	fprintf(stderr, "Affinity Enable\n");
+#endif
+
+#ifndef TEST
 	fprintf(stderr, "\nSimulation ended.\n\n");
+#endif
 
 	// Simulation times
 	sim_timings(&sim, t0, t1, n);
