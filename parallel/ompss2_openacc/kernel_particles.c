@@ -431,26 +431,77 @@ void dep_current_openacc(int ix, int iy, int di, int dj, float x0, float y0, flo
 	}
 
 	// Deposit virtual particle currents
-	for (int k = begin; k < begin + vnp; k++)
+	t_part_data S0x[2], S1x[2], S0y[2], S1y[2];
+	t_part_data wl1, wl2;
+	t_part_data wp1[2], wp2[2];
+
+	const int idx = vp[begin].ix + nrow * vp[begin].iy;
+
+	S0x[0] = 1.0f - vp[begin].x0;
+	S0x[1] = vp[begin].x0;
+
+	S1x[0] = 1.0f - vp[begin].x1;
+	S1x[1] = vp[begin].x1;
+
+	S0y[0] = 1.0f - vp[begin].y0;
+	S0y[1] = vp[begin].y0;
+
+	S1y[0] = 1.0f - vp[begin].y1;
+	S1y[1] = vp[begin].y1;
+
+	wl1 = qnx * vp[begin].dx;
+	wl2 = qny * vp[begin].dy;
+
+	wp1[0] = 0.5f * (S0y[0] + S1y[0]);
+	wp1[1] = 0.5f * (S0y[1] + S1y[1]);
+
+	wp2[0] = 0.5f * (S0x[0] + S1x[0]);
+	wp2[1] = 0.5f * (S0x[1] + S1x[1]);
+
+	#pragma acc atomic
+	J[idx].x += wl1 * wp1[0];
+
+	#pragma acc atomic
+	J[idx].y += wl2 * wp2[0];
+
+	#pragma acc atomic
+	J[idx].z += vp[begin].qvz * (S0x[0] * S0y[0] + S1x[0] * S1y[0]
+	             + (S0x[0] * S1y[0] - S1x[0] * S0y[0]) / 2.0f);
+
+	#pragma acc atomic
+	J[idx + 1].y += wl2 * wp2[1];
+
+	#pragma acc atomic
+	J[idx + 1].z += vp[begin].qvz * (S0x[1] * S0y[0] + S1x[1] * S1y[0]
+	                + (S0x[1] * S1y[0] - S1x[1] * S0y[0]) / 2.0f);
+
+	#pragma acc atomic
+	J[idx + nrow].x += wl1 * wp1[1];
+
+	#pragma acc atomic
+	J[idx + nrow].z += vp[begin].qvz * (S0x[0] * S0y[1] + S1x[0] * S1y[1]
+	                   + (S0x[0] * S1y[1] - S1x[0] * S0y[1]) / 2.0f);
+
+	#pragma acc atomic
+	J[idx + 1 + nrow].z += vp[begin].qvz * (S0x[1] * S0y[1] + S1x[1] * S1y[1]
+	                       + (S0x[1] * S1y[1] - S1x[1] * S0y[1]) / 2.0f);
+
+	if(vnp > 1)
 	{
-		float S0x[2], S1x[2], S0y[2], S1y[2];
-		float wl1, wl2;
-		float wp1[2], wp2[2];
+		S0x[0] = 1.0f - vp[begin + 1].x0;
+		S0x[1] = vp[begin + 1].x0;
 
-		S0x[0] = 1.0f - vp[k].x0;
-		S0x[1] = vp[k].x0;
+		S1x[0] = 1.0f - vp[begin + 1].x1;
+		S1x[1] = vp[begin + 1].x1;
 
-		S1x[0] = 1.0f - vp[k].x1;
-		S1x[1] = vp[k].x1;
+		S0y[0] = 1.0f - vp[begin + 1].y0;
+		S0y[1] = vp[begin + 1].y0;
 
-		S0y[0] = 1.0f - vp[k].y0;
-		S0y[1] = vp[k].y0;
+		S1y[0] = 1.0f - vp[begin + 1].y1;
+		S1y[1] = vp[begin + 1].y1;
 
-		S1y[0] = 1.0f - vp[k].y1;
-		S1y[1] = vp[k].y1;
-
-		wl1 = qnx * vp[k].dx;
-		wl2 = qny * vp[k].dy;
+		wl1 = qnx * vp[begin + 1].dx;
+		wl2 = qny * vp[begin + 1].dy;
 
 		wp1[0] = 0.5f * (S0y[0] + S1y[0]);
 		wp1[1] = 0.5f * (S0y[1] + S1y[1]);
@@ -459,32 +510,84 @@ void dep_current_openacc(int ix, int iy, int di, int dj, float x0, float y0, flo
 		wp2[1] = 0.5f * (S0x[1] + S1x[1]);
 
 		#pragma acc atomic
-		J[vp[k].ix + nrow * vp[k].iy].x += wl1 * wp1[0];
+		J[vp[begin + 1].ix + nrow * vp[begin + 1].iy].x += wl1 * wp1[0];
 
 		#pragma acc atomic
-		J[vp[k].ix + nrow * (vp[k].iy + 1)].x += wl1 * wp1[1];
+		J[vp[begin + 1].ix + nrow * (vp[begin + 1].iy + 1)].x += wl1 * wp1[1];
 
 		#pragma acc atomic
-		J[vp[k].ix + nrow * vp[k].iy].y += wl2 * wp2[0];
+		J[vp[begin + 1].ix + nrow * vp[begin + 1].iy].y += wl2 * wp2[0];
 
 		#pragma acc atomic
-		J[vp[k].ix + 1 + nrow * vp[k].iy].y += wl2 * wp2[1];
+		J[vp[begin + 1].ix + 1 + nrow * vp[begin + 1].iy].y += wl2 * wp2[1];
 
 		#pragma acc atomic
-		J[vp[k].ix + nrow * vp[k].iy].z += vp[k].qvz
-				* (S0x[0] * S0y[0] + S1x[0] * S1y[0] + (S0x[0] * S1y[0] - S1x[0] * S0y[0]) / 2.0f);
+		J[vp[begin + 1].ix + nrow * vp[begin + 1].iy].z += vp[begin + 1].qvz
+		        * (S0x[0] * S0y[0] + S1x[0] * S1y[0] + (S0x[0] * S1y[0] - S1x[0] * S0y[0]) / 2.0f);
 
 		#pragma acc atomic
-		J[vp[k].ix + 1 + nrow * vp[k].iy].z += vp[k].qvz
-				* (S0x[1] * S0y[0] + S1x[1] * S1y[0] + (S0x[1] * S1y[0] - S1x[1] * S0y[0]) / 2.0f);
+		J[vp[begin + 1].ix + 1 + nrow * vp[begin + 1].iy].z += vp[begin + 1].qvz
+		        * (S0x[1] * S0y[0] + S1x[1] * S1y[0] + (S0x[1] * S1y[0] - S1x[1] * S0y[0]) / 2.0f);
 
 		#pragma acc atomic
-		J[vp[k].ix + nrow * (vp[k].iy + 1)].z += vp[k].qvz
-				* (S0x[0] * S0y[1] + S1x[0] * S1y[1] + (S0x[0] * S1y[1] - S1x[0] * S0y[1]) / 2.0f);
+		J[vp[begin + 1].ix + nrow * (vp[begin + 1].iy + 1)].z += vp[begin + 1].qvz
+		        * (S0x[0] * S0y[1] + S1x[0] * S1y[1] + (S0x[0] * S1y[1] - S1x[0] * S0y[1]) / 2.0f);
 
 		#pragma acc atomic
-		J[vp[k].ix + 1 + nrow * (vp[k].iy + 1)].z += vp[k].qvz
-				* (S0x[1] * S0y[1] + S1x[1] * S1y[1] + (S0x[1] * S1y[1] - S1x[1] * S0y[1]) / 2.0f);
+		J[vp[begin + 1].ix + 1 + nrow * (vp[begin + 1].iy + 1)].z += vp[begin + 1].qvz
+		        * (S0x[1] * S0y[1] + S1x[1] * S1y[1] + (S0x[1] * S1y[1] - S1x[1] * S0y[1]) / 2.0f);
+
+		if(vnp == 3)
+		{
+			S0x[0] = 1.0f - vp[begin + 2].x0;
+			S0x[1] = vp[begin + 2].x0;
+
+			S1x[0] = 1.0f - vp[begin + 2].x1;
+			S1x[1] = vp[begin + 2].x1;
+
+			S0y[0] = 1.0f - vp[begin + 2].y0;
+			S0y[1] = vp[begin + 2].y0;
+
+			S1y[0] = 1.0f - vp[begin + 2].y1;
+			S1y[1] = vp[begin + 2].y1;
+
+			wl1 = qnx * vp[begin + 2].dx;
+			wl2 = qny * vp[begin + 2].dy;
+
+			wp1[0] = 0.5f * (S0y[0] + S1y[0]);
+			wp1[1] = 0.5f * (S0y[1] + S1y[1]);
+
+			wp2[0] = 0.5f * (S0x[0] + S1x[0]);
+			wp2[1] = 0.5f * (S0x[1] + S1x[1]);
+
+			#pragma acc atomic
+			J[vp[begin + 2].ix + nrow * vp[begin + 2].iy].x += wl1 * wp1[0];
+
+			#pragma acc atomic
+			J[vp[begin + 2].ix + nrow * (vp[begin + 2].iy + 1)].x += wl1 * wp1[1];
+
+			#pragma acc atomic
+			J[vp[begin + 2].ix + nrow * vp[begin + 2].iy].y += wl2 * wp2[0];
+
+			#pragma acc atomic
+			J[vp[begin + 2].ix + 1 + nrow * vp[begin + 2].iy].y += wl2 * wp2[1];
+
+			#pragma acc atomic
+			J[vp[begin + 2].ix + nrow * vp[begin + 2].iy].z += vp[begin + 2].qvz
+			        * (S0x[0] * S0y[0] + S1x[0] * S1y[0] + (S0x[0] * S1y[0] - S1x[0] * S0y[0]) / 2.0f);
+
+			#pragma acc atomic
+			J[vp[begin + 2].ix + 1 + nrow * vp[begin + 2].iy].z += vp[begin + 2].qvz
+			        * (S0x[1] * S0y[0] + S1x[1] * S1y[0] + (S0x[1] * S1y[0] - S1x[1] * S0y[0]) / 2.0f);
+
+			#pragma acc atomic
+			J[vp[begin + 2].ix + nrow * (vp[begin + 2].iy + 1)].z += vp[begin + 2].qvz
+			        * (S0x[0] * S0y[1] + S1x[0] * S1y[1] + (S0x[0] * S1y[1] - S1x[0] * S0y[1]) / 2.0f);
+
+			#pragma acc atomic
+			J[vp[begin + 2].ix + 1 + nrow * (vp[begin + 2].iy + 1)].z += vp[begin + 2].qvz
+			        * (S0x[1] * S0y[1] + S1x[1] * S1y[1] + (S0x[1] * S1y[1] - S1x[1] * S0y[1]) / 2.0f);
+		}
 	}
 }
 
@@ -999,11 +1102,7 @@ void spec_full_sort_openacc(t_species *spec, const int limits_y[2], const int de
 }
 
 // Calculate an histogram for the number of particles per tile
-#pragma oss task label("Sort (GPU, Histogram NP)") device(openacc) \
-	in(part_vector->ix[0; part_vector->size_max]) \
-	in(part_vector->iy[0; part_vector->size_max]) \
-	in(part_vector->invalid[0; part_vector->size_max]) \
-	in(incoming_part[0:1]) inout(tile_offset[0: n_tiles_x * n_tiles_y])
+#pragma oss task label("Sort (GPU, Histogram NP)") device(openacc) inout(tile_offset[0: n_tiles_x * n_tiles_y])
 void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_offset,
 		t_particle_vector incoming_part[3], int *restrict np_per_tile, const int n_tiles_y, const int n_tiles_x,
 		const int offset_region)
@@ -1011,12 +1110,12 @@ void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_of
 	const int n_tiles = n_tiles_x * n_tiles_y;
 
 	// Reset the number of particles per tile
-	#pragma acc parallel loop deviceptr(np_per_tile)
+	#pragma acc parallel loop // deviceptr(np_per_tile)
 	for (int i = 0; i < n_tiles; i++)
 		np_per_tile[i] = 0;
 
 	// Calculate the histogram (number of particles per tile) for the main vector
-	#pragma acc parallel loop gang collapse(2) deviceptr(np_per_tile)
+	#pragma acc parallel loop gang collapse(2) // deviceptr(np_per_tile)
 	for(int tile_y = 0; tile_y < n_tiles_y; tile_y++)
 	{
 		for(int tile_x = 0; tile_x < n_tiles_x; tile_x++)
@@ -1083,7 +1182,7 @@ void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_of
 		{
 			int size_temp = incoming_part[n].size;;
 
-			#pragma acc parallel loop deviceptr(np_per_tile)
+			#pragma acc parallel loop // deviceptr(np_per_tile)
 			for(int k = 0; k < size_temp; k++)
 			{
 				int ix = incoming_part[n].ix[k] / TILE_SIZE;
@@ -1097,7 +1196,7 @@ void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_of
 	}
 
 	// Copy the histogram to calculate the new tile offset
-	#pragma acc parallel loop deviceptr(np_per_tile)
+	#pragma acc parallel loop // deviceptr(np_per_tile)
 	for (int i = 0; i <= n_tiles; i++)
 		if(i < n_tiles) tile_offset[i] = np_per_tile[i];
 		else tile_offset[i] = 0;
@@ -1105,11 +1204,7 @@ void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_of
 
 // Calculate an histogram for the particles moving between tiles
 #pragma oss task label("Sort (GPU, Histogram Leaving Part)") device(openacc)  \
-	in(part_vector->ix[0; part_vector->size_max]) \
-	in(part_vector->iy[0; part_vector->size_max]) \
-	in(part_vector->invalid[0; part_vector->size_max]) \
-	inout(tile_offset[0: n_tiles]) \
-	out(np_leaving[0: n_tiles])
+	in(tile_offset[0: n_tiles]) out(np_leaving[0: n_tiles])
 void histogram_moving_particles(t_particle_vector *part_vector, int *restrict tile_offset,
 		int *restrict np_leaving, const int n_tiles, const int n_tiles_x, const int offset_region,
 		const int old_size)
@@ -1140,17 +1235,7 @@ void histogram_moving_particles(t_particle_vector *part_vector, int *restrict ti
 }
 
 #pragma oss task label("Sort (GPU, Sort Particles)") device(openacc) \
-	inout(part_vector->ix[0; part_vector->size_max]) \
-	inout(part_vector->iy[0; part_vector->size_max]) \
-	inout(part_vector->x[0; part_vector->size_max]) \
-	inout(part_vector->y[0; part_vector->size_max]) \
-	inout(part_vector->ux[0; part_vector->size_max]) \
-	inout(part_vector->uy[0; part_vector->size_max]) \
-	inout(part_vector->uz[0; part_vector->size_max]) \
-	inout(part_vector->invalid[0; part_vector->size_max]) \
-	inout(incoming_part[0:1]) \
-	inout(tile_offset[0: n_tiles_x * n_tiles_y]) \
-	in(mv_part_offset[0: n_tiles_x * n_tiles_y])
+	inout(tile_offset[0: n_tiles_x * n_tiles_y]) in(mv_part_offset[0: n_tiles_x * n_tiles_y])
 void spec_sort_particles(t_particle_vector *part_vector, t_particle_vector incoming_part[3],
         int *tile_offset, int *mv_part_offset, int *source_idx, int *target_idx, int *counter,
         int *temp_int, float *temp_float, const int n_tiles_x, const int n_tiles_y,
@@ -1168,16 +1253,16 @@ void spec_sort_particles(t_particle_vector *part_vector, t_particle_vector incom
 		exit(1);
 	}
 
-	#pragma acc parallel loop deviceptr(source_idx)
+	#pragma acc parallel loop // deviceptr(source_idx)
 	for(int i = 0; i < sorting_size; i++)
 		source_idx[i] = -1;
 
-	#pragma acc parallel loop deviceptr(counter)
+	#pragma acc parallel loop // deviceptr(counter)
 	for (int i = 0; i < n_tiles; i++)
 		counter[i] = mv_part_offset[i];
 
 	// Determine which particles are in the wrong tile
-	#pragma acc parallel loop gang collapse(2) deviceptr(target_idx, counter)
+	#pragma acc parallel loop gang collapse(2) // deviceptr(target_idx, counter)
 	for(int tile_y = 0; tile_y < n_tiles_y; tile_y++)
 	{
 		for(int tile_x = 0; tile_x < n_tiles_x; tile_x++)
@@ -1219,7 +1304,7 @@ void spec_sort_particles(t_particle_vector *part_vector, t_particle_vector incom
 	}
 
 	// Generate a sorted list for the particles in the wrong tile
-	#pragma acc parallel loop gang collapse(2) deviceptr(source_idx, target_idx, counter)
+	#pragma acc parallel loop gang collapse(2) // deviceptr(source_idx, target_idx, counter)
 	for(int tile_y = 0; tile_y < n_tiles_y; tile_y++)
 	{
 		for(int tile_x = 0; tile_x < n_tiles_x; tile_x++)
@@ -1268,7 +1353,7 @@ void spec_sort_particles(t_particle_vector *part_vector, t_particle_vector incom
 	// If the vector has shrink, add the valid particles outside the vector new size
 	if(part_vector->size < old_size)
 	{
-		#pragma acc parallel loop deviceptr(source_idx, counter)
+		#pragma acc parallel loop // deviceptr(source_idx, counter)
 		for(int k = part_vector->size; k < old_size; k++)
 		{
 			int idx;
@@ -1289,63 +1374,63 @@ void spec_sort_particles(t_particle_vector *part_vector, t_particle_vector incom
 	}
 
 	// Sort the main vector
-	#pragma acc parallel loop deviceptr(temp_int, source_idx)
+	#pragma acc parallel loop // deviceptr(temp_int, source_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) temp_int[i] = part_vector->ix[source_idx[i]];
 
-	#pragma acc parallel loop deviceptr(temp_int, source_idx, target_idx)
+	#pragma acc parallel loop // deviceptr(temp_int, source_idx, target_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) part_vector->ix[target_idx[i]] = temp_int[i];
 
-	#pragma acc parallel loop deviceptr(temp_int, source_idx)
+	#pragma acc parallel loop // deviceptr(temp_int, source_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) temp_int[i] = part_vector->iy[source_idx[i]];
 
-	#pragma acc parallel loop deviceptr(temp_int, source_idx, target_idx)
+	#pragma acc parallel loop // deviceptr(temp_int, source_idx, target_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) part_vector->iy[target_idx[i]] = temp_int[i];
 
-	#pragma acc parallel loop deviceptr(temp_float, source_idx)
+	#pragma acc parallel loop // deviceptr(temp_float, source_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) temp_float[i] = part_vector->x[source_idx[i]];
 
-	#pragma acc parallel loop deviceptr(temp_float, source_idx, target_idx)
+	#pragma acc parallel loop // deviceptr(temp_float, source_idx, target_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) part_vector->x[target_idx[i]] = temp_float[i];
 
-	#pragma acc parallel loop deviceptr(temp_float, source_idx)
+	#pragma acc parallel loop // deviceptr(temp_float, source_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) temp_float[i] = part_vector->y[source_idx[i]];
 
-	#pragma acc parallel loop deviceptr(temp_float, source_idx, target_idx)
+	#pragma acc parallel loop // deviceptr(temp_float, source_idx, target_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) part_vector->y[target_idx[i]] = temp_float[i];
 
-	#pragma acc parallel loop deviceptr(temp_float, source_idx)
+	#pragma acc parallel loop // deviceptr(temp_float, source_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) temp_float[i] = part_vector->ux[source_idx[i]];
 
-	#pragma acc parallel loop deviceptr(temp_float, source_idx, target_idx)
+	#pragma acc parallel loop // deviceptr(temp_float, source_idx, target_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) part_vector->ux[target_idx[i]] = temp_float[i];
 
-	#pragma acc parallel loop deviceptr(temp_float, source_idx)
+	#pragma acc parallel loop // deviceptr(temp_float, source_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) temp_float[i] = part_vector->uy[source_idx[i]];
 
-	#pragma acc parallel loop deviceptr(temp_float, source_idx, target_idx)
+	#pragma acc parallel loop // deviceptr(temp_float, source_idx, target_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) part_vector->uy[target_idx[i]] = temp_float[i];
 
-	#pragma acc parallel loop deviceptr(temp_float, source_idx)
+	#pragma acc parallel loop // deviceptr(temp_float, source_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) temp_float[i] = part_vector->uz[source_idx[i]];
 
-	#pragma acc parallel loop deviceptr(temp_float, source_idx, target_idx)
+	#pragma acc parallel loop // deviceptr(temp_float, source_idx, target_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) part_vector->uz[target_idx[i]] = temp_float[i];
 
-	#pragma acc parallel loop deviceptr(source_idx, target_idx)
+	#pragma acc parallel loop // deviceptr(source_idx, target_idx)
 	for (int i = 0; i < sorting_size; i++)
 		if (source_idx[i] >= 0) part_vector->invalid[target_idx[i]] = false;
 
@@ -1356,7 +1441,7 @@ void spec_sort_particles(t_particle_vector *part_vector, t_particle_vector incom
 		{
 			int size_temp = incoming_part[n].size;;
 
-			#pragma acc parallel loop firstprivate(size_temp) deviceptr(target_idx, counter)
+			#pragma acc parallel loop firstprivate(size_temp) // deviceptr(target_idx, counter)
 			for(int k = 0; k < size_temp; k++)
 			{
 				int idx;
@@ -1386,19 +1471,22 @@ void spec_sort_particles(t_particle_vector *part_vector, t_particle_vector incom
 
 void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 {
+	const int old_size = spec->main_vector.size;
 	const int n_tiles = spec->n_tiles_x * spec->n_tiles_y;
 	spec->mv_part_offset[n_tiles] = 0;
 
+//	const int num_devices = acc_get_num_devices(DEVICE_TYPE);
+//	acc_set_device_num(device % num_devices, DEVICE_TYPE);
+
 	const int max_leaving_np = MAX_LEAVING_PART * spec->main_vector.size_max;
-	int *restrict source_idx = acc_malloc(max_leaving_np * sizeof(int));
-	int *restrict target_idx = acc_malloc(max_leaving_np * sizeof(int));
-	int *restrict counter = acc_malloc(n_tiles * sizeof(int));
-	int *restrict np_per_tile = acc_malloc(n_tiles * sizeof(int));
+	int *restrict source_idx = malloc(max_leaving_np * sizeof(int));
+	int *restrict target_idx = malloc(max_leaving_np * sizeof(int));
+	int *restrict counter = malloc(n_tiles * sizeof(int));
+	int *restrict np_per_tile = malloc(n_tiles * sizeof(int));
 
-	int *restrict temp_int = acc_malloc(max_leaving_np * sizeof(int));
-	float *restrict temp_float = acc_malloc(max_leaving_np * sizeof(float));
+	int *restrict temp_int = malloc(max_leaving_np * sizeof(int));
+	float *restrict temp_float = malloc(max_leaving_np * sizeof(float));
 
-	int old_size = spec->main_vector.size;
 	int np_inj = 0;
 	for (int i = 0; i < 3; i++)
 		if (spec->incoming_part[i].enable_vector) np_inj += spec->incoming_part[i].size;
@@ -1428,13 +1516,13 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 	        spec->mv_part_offset, source_idx, target_idx, counter, temp_int, temp_float,
 	        spec->n_tiles_x, spec->n_tiles_y, limits_y[0], old_size);
 
-	#pragma oss taskwait on(spec->tile_offset[0: n_tiles])
+	#pragma oss taskwait on(spec->tile_offset[0 : n_tiles])
+//	acc_set_device_num(device % num_devices, DEVICE_TYPE);
 
-	acc_free(np_per_tile);
-	acc_free(temp_float);
-	acc_free(temp_int);
-	acc_free(counter);
-	acc_free(target_idx);
-	acc_free(source_idx);
-
+	free(np_per_tile);
+	free(temp_float);
+	free(temp_int);
+	free(counter);
+	free(target_idx);
+	free(source_idx);
 }

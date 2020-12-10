@@ -112,7 +112,7 @@ void current_smooth_x_openacc(t_current *current)
 	{
 		// Apply the filter in the x direction
 		#pragma acc parallel loop gang vector_length(384)
-		for (int j = 0; j < current->nx[1]; ++j)
+		for (int j = -current->gc[1][0]; j < current->nx[1] + current->gc[1][1]; ++j)
 		{
 			t_vfld J_temp[LOCAL_BUFFER_SIZE + 2];
 			#pragma acc cache(J_temp[0:LOCAL_BUFFER_SIZE + 2])
@@ -165,7 +165,7 @@ void current_smooth_x_openacc(t_current *current)
 
 		// Apply the filter in the x direction
 		#pragma acc parallel loop gang vector_length(384)
-		for (int j = 0; j < current->nx[1]; ++j)
+		for (int j = -current->gc[1][0]; j < current->nx[1] + current->gc[1][1]; ++j)
 		{
 			t_vfld J_temp[LOCAL_BUFFER_SIZE + 2];
 			#pragma acc cache(J_temp[0:LOCAL_BUFFER_SIZE + 2])

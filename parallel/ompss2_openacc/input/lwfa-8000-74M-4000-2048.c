@@ -32,7 +32,7 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 	t_density density = {.type = UNIFORM}; //{.type = STEP, .start = 20.0};
 
 	t_species *species = (t_species*) malloc(n_species * sizeof(t_species));
-	spec_new(&species[0], "electrons", -1.0, ppc, NULL, NULL, nx, box, dt, &density, nx[1]);
+	spec_new(&species[0], "electrons", -1.0, ppc, NULL, NULL, nx, box, dt, &density, nx[1], -1);
 
 	// Initialize Simulation data
 	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa-8000-74M-4000-2048", n_regions, gpu_percentage, n_gpu_regions);

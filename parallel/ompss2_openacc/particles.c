@@ -175,6 +175,18 @@ void part_vector_memcpy(const t_particle_vector *source, t_particle_vector *targ
 	 memcpy(target->invalid, source->invalid + begin, size * sizeof(bool));
 }
 
+void part_vector_mem_advise(t_particle_vector *vector, const int advise, const int device)
+{
+	cuMemAdvise(vector->ix, vector->size_max * sizeof(int), advise, device);
+	cuMemAdvise(vector->iy, vector->size_max * sizeof(int), advise, device);
+	cuMemAdvise(vector->x, vector->size_max * sizeof(t_part_data), advise, device);
+	cuMemAdvise(vector->y, vector->size_max * sizeof(t_part_data), advise, device);
+	cuMemAdvise(vector->ux, vector->size_max * sizeof(t_part_data), advise, device);
+	cuMemAdvise(vector->uy, vector->size_max * sizeof(t_part_data), advise, device);
+	cuMemAdvise(vector->uz, vector->size_max * sizeof(t_part_data), advise, device);
+	cuMemAdvise(vector->invalid, vector->size_max * sizeof(bool), advise, device);
+}
+
 /*********************************************************************************************
  Vector Handling
  *********************************************************************************************/

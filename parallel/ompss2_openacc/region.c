@@ -128,6 +128,12 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 			spec[n].main_vector.uz = tmp.uz;
 			spec[n].main_vector.invalid = tmp.invalid;
 		}
+
+#ifdef ENABLE_ADVISE
+		if(region->enable_gpu)
+			part_vector_mem_advise(&region->species[n].main_vector,
+					CU_MEM_ADVISE_SET_PREFERRED_LOCATION, region->id % acc_get_num_devices(DEVICE_TYPE));
+#endif
 	}
 
 	//Calculate the region box
@@ -161,6 +167,18 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 		_effective_gpu_regions = gpu_percentage * n_regions;
 		_num_gpus = acc_get_num_devices(DEVICE_TYPE);
 	}
+
+#ifdef ENABLE_ADVISE
+	if(region->enable_gpu)
+	{
+		cuMemAdvise(region->local_current.J_buf, region->local_current.total_size,
+				CU_MEM_ADVISE_SET_PREFERRED_LOCATION, id % _num_gpus);
+		cuMemAdvise(region->local_emf.E_buf, region->local_emf.total_size,
+				CU_MEM_ADVISE_SET_PREFERRED_LOCATION, id % _num_gpus);
+		cuMemAdvise(region->local_emf.B_buf, region->local_emf.total_size,
+				CU_MEM_ADVISE_SET_PREFERRED_LOCATION, id % _num_gpus);
+	}
+#endif
 }
 
 // Link two adjacent regions and calculate the overlap zone between them
@@ -174,6 +192,18 @@ void region_init(t_region *region)
 		region->species[n].outgoing_part[0] = &region->prev->species[n].incoming_part[1];
 		region->species[n].outgoing_part[1] = &region->next->species[n].incoming_part[0];
 	}
+
+#ifdef ENABLE_ADVISE
+	if(region->next->enable_gpu)
+	{
+		cuMemAdvise(region->local_current.J_upper, region->local_current.overlap_size,
+				CU_MEM_ADVISE_SET_ACCESSED_BY, region->id % _num_gpus);
+		cuMemAdvise(region->local_emf.B_upper, region->local_emf.overlap_size,
+				CU_MEM_ADVISE_SET_ACCESSED_BY, region->id % _num_gpus);
+		cuMemAdvise(region->local_emf.E_upper, region->local_emf.overlap_size,
+				CU_MEM_ADVISE_SET_ACCESSED_BY, region->id % _num_gpus);
+	}
+#endif
 
 	if (region->enable_gpu)
 	{
@@ -373,10 +403,7 @@ void region_advance(t_region *region)
 	region_current_reduction_y(region);
 
 	if (region->local_current.smooth.xtype != NONE)
-	{
 		region_current_smooth(region, SMOOTH_X);
-		region_current_smooth(region, CURRENT_UPDATE_GC);
-	}
 
 	if (region->local_current.smooth.ytype != NONE)
 	{
