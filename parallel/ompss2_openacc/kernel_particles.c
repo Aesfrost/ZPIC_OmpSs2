@@ -636,7 +636,7 @@ void advance_part_momentum(t_float3 *part_velocity, t_vfld Ep, t_vfld Bp, const 
 
 // Particle advance (OpenAcc). Optimised for GPU architecture
 void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict const emf,
-		t_current *restrict const current, const int limits_y[2])
+		t_current *restrict const current, const int limits_y[2], const int device)
 {
 	const t_part_data tem = 0.5 * spec->dt / spec->m_q;
 	const t_part_data dt_dx = spec->dt / spec->dx[0];
@@ -649,6 +649,8 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 	const int nrow = emf->nrow;
 	const int region_offset = limits_y[0];
 
+// 	fprintf(stderr, "Spec Advance: Device: %d | Region: %d\n", acc_get_device_num(DEVICE_TYPE), device);
+
 	// Advance particles
 	#pragma acc parallel loop gang collapse(2) vector_length(THREAD_BLOCK)
 	for(int tile_y = 0; tile_y < spec->n_tiles_y; tile_y++)
@@ -658,6 +660,10 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 			const int tile_idx = tile_x + tile_y * spec->n_tiles_x;
 			const int begin = spec->tile_offset[tile_idx];
 			const int end = spec->tile_offset[tile_idx + 1];
+
+			t_integer2 begin_idx;
+			begin_idx.x = tile_x * TILE_SIZE;
+			begin_idx.y = tile_y * TILE_SIZE;
 
 			t_vfld E[(TILE_SIZE + 2) * (TILE_SIZE + 2)];
 			t_vfld B[(TILE_SIZE + 2) * (TILE_SIZE + 2)];
@@ -677,11 +683,23 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 				for(int i = 0; i < (TILE_SIZE + 2); i++)
 				{
 					t_integer2 idx;
-					idx.x = (tile_x * TILE_SIZE + i - 1);
-					idx.y = (tile_y * TILE_SIZE + j - 1);
+					idx.x = begin_idx.x + i;
+					idx.y = begin_idx.y + j;
 
-					E[i + j * (TILE_SIZE + 2)] = emf->E[idx.x + idx.y * nrow];
-					B[i + j * (TILE_SIZE + 2)] = emf->B[idx.x + idx.y * nrow];
+					if(idx.x <= spec->nx[0] + 1 && idx.y <= (limits_y[1] - region_offset) + 1)
+					{
+						E[i + j * (TILE_SIZE + 2)] = emf->E_buf[idx.x + idx.y * nrow];
+						B[i + j * (TILE_SIZE + 2)] = emf->B_buf[idx.x + idx.y * nrow];
+					}else
+					{
+						E[i + j * (TILE_SIZE + 2)].x = 0;
+						E[i + j * (TILE_SIZE + 2)].y = 0;
+						E[i + j * (TILE_SIZE + 2)].z = 0;
+
+						B[i + j * (TILE_SIZE + 2)].x = 0;
+						B[i + j * (TILE_SIZE + 2)].y = 0;
+						B[i + j * (TILE_SIZE + 2)].z = 0;
+					}
 				}
 			}
 
@@ -711,8 +729,8 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 				// Load particle cell index into local variable
 				// Then convert to local coordinates
 				t_integer2 part_idx;
-				part_idx.x = spec->main_vector.ix[k] - (tile_x * TILE_SIZE - 1);
-				part_idx.y = spec->main_vector.iy[k] - (tile_y * TILE_SIZE - 1) - region_offset;
+				part_idx.x = spec->main_vector.ix[k] - (begin_idx.x - 1);
+				part_idx.y = spec->main_vector.iy[k] - (begin_idx.y - 1) - region_offset;
 
 				t_vfld Ep, Bp;
 
@@ -760,17 +778,28 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 				for(int i = 0; i < (TILE_SIZE + 3); i++)
 				{
 					t_integer2 idx;
-					idx.x = (tile_x * TILE_SIZE + i - 1);
-					idx.y = (tile_y * TILE_SIZE + j - 1);
+					idx.x = begin_idx.x + i;
+					idx.y = begin_idx.y + j;
 
-					#pragma acc atomic
-					current->J[idx.x + idx.y * nrow].x += J[i + j * ((TILE_SIZE + 3))].x;
+					const t_vfld value = J[i + j * (TILE_SIZE + 3)];
 
-					#pragma acc atomic
-					current->J[idx.x + idx.y * nrow].y += J[i + j * ((TILE_SIZE + 3))].y;
+					if(value.x)
+					{
+						#pragma acc atomic
+						current->J_buf[idx.x + idx.y * nrow].x += value.x;
+					}
 
-					#pragma acc atomic
-					current->J[idx.x + idx.y * nrow].z += J[i + j * ((TILE_SIZE + 3))].z;
+					if(value.y)
+					{
+						#pragma acc atomic
+						current->J_buf[idx.x + idx.y * nrow].y += value.y;
+					}
+
+					if(value.z)
+					{
+						#pragma acc atomic
+						current->J_buf[idx.x + idx.y * nrow].z += value.z;
+					}
 				}
 			}
 		}
@@ -898,10 +927,12 @@ void spec_move_window_openacc(t_species *restrict spec, const int limits_y[2], c
 }
 
 // Transfer particles between regions (if applicable). OpenAcc Task
-void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2])
+void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2], const int device)
 {
 	const int nx0 = spec->nx[0];
 	const int nx1 = spec->nx[1];
+
+// 	fprintf(stderr, "Check Boundaries: Device: %d | Region: %d\n", acc_get_device_num(DEVICE_TYPE), device);
 
 	// Check if particles are exiting the left boundary (periodic boundary)
 	#pragma acc parallel loop gang vector_length(128)
@@ -1209,7 +1240,6 @@ void histogram_moving_particles(t_particle_vector *part_vector, int *restrict ti
 		int *restrict np_leaving, const int n_tiles, const int n_tiles_x, const int offset_region,
 		const int old_size)
 {
-
 	#pragma acc parallel loop gang
 	for(int tile_idx = 0; tile_idx < n_tiles; tile_idx++)
 	{
@@ -1475,8 +1505,8 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 	const int n_tiles = spec->n_tiles_x * spec->n_tiles_y;
 	spec->mv_part_offset[n_tiles] = 0;
 
-//	const int num_devices = acc_get_num_devices(DEVICE_TYPE);
-//	acc_set_device_num(device % num_devices, DEVICE_TYPE);
+	const int num_devices = acc_get_num_devices(DEVICE_TYPE);
+	acc_set_device_num(device % num_devices, DEVICE_TYPE);
 
 	const int max_leaving_np = MAX_LEAVING_PART * spec->main_vector.size_max;
 	int *restrict source_idx = malloc(max_leaving_np * sizeof(int));
@@ -1517,7 +1547,7 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 	        spec->n_tiles_x, spec->n_tiles_y, limits_y[0], old_size);
 
 	#pragma oss taskwait on(spec->tile_offset[0 : n_tiles])
-//	acc_set_device_num(device % num_devices, DEVICE_TYPE);
+	acc_set_device_num(device % num_devices, DEVICE_TYPE);
 
 	free(np_per_tile);
 	free(temp_float);
