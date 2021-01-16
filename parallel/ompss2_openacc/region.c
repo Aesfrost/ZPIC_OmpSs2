@@ -140,10 +140,10 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 	float region_box[] = {box[0], box[1] / nx[1] * region->nx[1]};
 
 	// Initialise the local current
-	current_new(&region->local_current, region->nx, region_box, dt, -1);
+	current_new(&region->local_current, region->nx, region_box, dt, device);
 
 	// Initialise the local emf
-	emf_new(&region->local_emf, region->nx, region_box, dt, -1);
+	emf_new(&region->local_emf, region->nx, region_box, dt, device);
 
 	// Initialise the others regions recursively
 	if (id + 1 < n_regions)
@@ -283,9 +283,9 @@ void region_spec_advance(t_region *region)
 		for (int i = 0; i < region->n_species; i++)
 		{
 			spec_advance_openacc(&region->species[i], &region->local_emf, &region->local_current,
-					region->limits_y, region->id);
+					region->limits_y);
 			if(region->species[i].moving_window) spec_move_window_openacc(&region->species[i], region->limits_y, region->id);
-			spec_check_boundaries_openacc(&region->species[i], region->limits_y, region->id);
+			spec_check_boundaries_openacc(&region->species[i], region->limits_y);
 		}
 	} else
 	{

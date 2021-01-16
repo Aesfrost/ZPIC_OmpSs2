@@ -159,27 +159,35 @@ void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const i
 void spec_update_main_vector(t_species *spec);
 
 // OpenAcc Tasks
+//#pragma oss task label("Spec Kernel (GPU)") device(openacc) \
+//	in(emf->E_buf[0; emf->total_size]) \
+//	in(emf->B_buf[0; emf->total_size]) \
+//	inout(current->J_buf[0; current->total_size]) \
+//	inout(spec->main_vector.ix[0; spec->main_vector.size_max]) \
+//	inout(spec->main_vector.iy[0; spec->main_vector.size_max]) \
+//	inout(spec->main_vector.x[0; spec->main_vector.size_max]) \
+//	inout(spec->main_vector.y[0; spec->main_vector.size_max]) \
+//	inout(spec->main_vector.ux[0; spec->main_vector.size_max]) \
+//	inout(spec->main_vector.uy[0; spec->main_vector.size_max]) \
+//	inout(spec->main_vector.uz[0; spec->main_vector.size_max]) \
+//	inout(spec->main_vector.invalid[0; spec->main_vector.size_max])
+
 #pragma oss task label("Spec Kernel (GPU)") device(openacc) \
 	in(emf->E_buf[0; emf->total_size]) \
 	in(emf->B_buf[0; emf->total_size]) \
 	inout(current->J_buf[0; current->total_size]) \
 	inout(spec->main_vector.ix[0; spec->main_vector.size_max]) \
 	inout(spec->main_vector.iy[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.x[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.y[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.ux[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.uy[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.uz[0; spec->main_vector.size_max]) \
 	inout(spec->main_vector.invalid[0; spec->main_vector.size_max])
 void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict const emf,
-		t_current *restrict const current, const int limits_y[2], const int device);
+		t_current *restrict const current, const int limits_y[2]);
 
 #pragma oss task label("Spec Check Boundaries (GPU)") device(openacc) \
 		inout(spec->main_vector.ix[0; spec->main_vector.size_max]) \
 		inout(spec->main_vector.iy[0; spec->main_vector.size_max]) \
 		inout(spec->main_vector.invalid[0; spec->main_vector.size_max]) \
 		out(*spec->outgoing_part[0]) out(*spec->outgoing_part[1])
-void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2], const int device);
+void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2]);
 
 #pragma oss task label("Spec Move Window (GPU)") device(openacc) \
 		inout(spec->main_vector.ix[0; spec->main_vector.size_max])
