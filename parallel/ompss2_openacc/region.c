@@ -86,6 +86,7 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 	{
 		spec_new(&region->species[n], spec[n].name, spec[n].m_q, spec[n].ppc, spec[n].ufl,
 				spec[n].uth, spec[n].nx, spec[n].box, spec[n].dt, &spec[n].density, region->nx[1], device);
+		region->species[n].id = region->id;
 
 		particles = &region->species[n].main_vector;
 
@@ -141,9 +142,11 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 
 	// Initialise the local current
 	current_new(&region->local_current, region->nx, region_box, dt, device);
+	region->local_current.id = region->id;
 
 	// Initialise the local emf
 	emf_new(&region->local_emf, region->nx, region_box, dt, device);
+	region->local_emf.id = region->id;
 
 	// Initialise the others regions recursively
 	if (id + 1 < n_regions)

@@ -28,6 +28,8 @@ typedef struct {
 
 typedef struct {
 
+	int id;
+
 	t_vfld *J;
 	t_vfld *J_buf;
 

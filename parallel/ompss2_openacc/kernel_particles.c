@@ -649,6 +649,9 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 	const int nrow = emf->nrow;
 	const int region_offset = limits_y[0];
 
+	if(spec->id != acc_get_device_num(DEVICE_TYPE))
+		fprintf(stderr, "Spec Advance: %d | %d\n", acc_get_device_num(DEVICE_TYPE), spec->id);
+
 	// Advance particles
 	#pragma acc parallel loop gang collapse(2) vector_length(THREAD_BLOCK)
 	for(int tile_y = 0; tile_y < spec->n_tiles_y; tile_y++)
@@ -930,6 +933,10 @@ void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2])
 	const int nx0 = spec->nx[0];
 	const int nx1 = spec->nx[1];
 
+	if(spec->id != acc_get_device_num(DEVICE_TYPE))
+		fprintf(stderr, "Check Boundaries: %d | %d\n", acc_get_device_num(DEVICE_TYPE), spec->id);
+
+
 	// Check if particles are exiting the left boundary (periodic boundary)
 	#pragma acc parallel loop gang vector_length(128)
 	for(int tile_y = 0; tile_y < spec->n_tiles_y; tile_y++)
@@ -1132,9 +1139,13 @@ void spec_full_sort_openacc(t_species *spec, const int limits_y[2], const int de
 #pragma oss task label("Sort (GPU, Histogram NP)") device(openacc) inout(tile_offset[0: n_tiles_x * n_tiles_y])
 void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_offset,
 		t_particle_vector incoming_part[3], int *restrict np_per_tile, const int n_tiles_y, const int n_tiles_x,
-		const int offset_region)
+		const int offset_region, const int device)
 {
 	const int n_tiles = n_tiles_x * n_tiles_y;
+
+	if(device != acc_get_device_num(DEVICE_TYPE))
+		fprintf(stderr, "Sort Histogram: %d | %d\n", acc_get_device_num(DEVICE_TYPE), device);
+
 
 	// Reset the number of particles per tile
 	#pragma acc parallel loop // deviceptr(np_per_tile)
@@ -1265,11 +1276,14 @@ void histogram_moving_particles(t_particle_vector *part_vector, int *restrict ti
 void spec_sort_particles(t_particle_vector *part_vector, t_particle_vector incoming_part[3],
         int *tile_offset, int *mv_part_offset, int *source_idx, int *target_idx, int *counter,
         int *temp_int, float *temp_float, const int n_tiles_x, const int n_tiles_y,
-        const int offset_region, const int old_size)
+        const int offset_region, const int old_size, const int device)
 {
 	int n_tiles = n_tiles_x * n_tiles_y;
 	int sorting_size = mv_part_offset[n_tiles];
 	part_vector->size = tile_offset[n_tiles];
+
+	if(device != acc_get_device_num(DEVICE_TYPE))
+		fprintf(stderr, "Sort Particles: %d | %d\n", acc_get_device_num(DEVICE_TYPE), device);
 
 	if(sorting_size >= MAX_LEAVING_PART * part_vector->size_max)
 	{
@@ -1505,13 +1519,21 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 //	acc_set_device_num(device % num_devices, DEVICE_TYPE);
 
 	const int max_leaving_np = MAX_LEAVING_PART * spec->main_vector.size_max;
-	int *restrict source_idx = malloc(max_leaving_np * sizeof(int));
-	int *restrict target_idx = malloc(max_leaving_np * sizeof(int));
-	int *restrict counter = malloc(n_tiles * sizeof(int));
-	int *restrict np_per_tile = malloc(n_tiles * sizeof(int));
+//	int *restrict source_idx = malloc(max_leaving_np * sizeof(int));
+//	int *restrict target_idx = malloc(max_leaving_np * sizeof(int));
+//	int *restrict counter = malloc(n_tiles * sizeof(int));
+//	int *restrict np_per_tile = malloc(n_tiles * sizeof(int));
+//
+//	int *restrict temp_int = malloc(max_leaving_np * sizeof(int));
+//	float *restrict temp_float = malloc(max_leaving_np * sizeof(float));
 
-	int *restrict temp_int = malloc(max_leaving_np * sizeof(int));
-	float *restrict temp_float = malloc(max_leaving_np * sizeof(float));
+	int *restrict source_idx = alloc_device_buffer(max_leaving_np * sizeof(int), device);
+	int *restrict target_idx = alloc_device_buffer(max_leaving_np * sizeof(int), device);
+	int *restrict counter = alloc_device_buffer(n_tiles * sizeof(int), device);
+	int *restrict np_per_tile = alloc_device_buffer(n_tiles * sizeof(int), device);
+
+	int *restrict temp_int = alloc_device_buffer(max_leaving_np * sizeof(int), device);
+	float *restrict temp_float = alloc_device_buffer(max_leaving_np * sizeof(float), device);
 
 	int np_inj = 0;
 	for (int i = 0; i < 3; i++)
@@ -1526,7 +1548,7 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 
 	// Calculate the new offset (in the particle vector) for the tiles
 	histogram_np_per_tile(&spec->main_vector, spec->tile_offset, spec->incoming_part, np_per_tile,
-	        spec->n_tiles_y, spec->n_tiles_x, limits_y[0]);
+	        spec->n_tiles_y, spec->n_tiles_x, limits_y[0], device);
 
 	#pragma oss task inout(spec->tile_offset[0: n_tiles])
 	prefix_sum_serial(spec->tile_offset, n_tiles + 1);
@@ -1540,15 +1562,15 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 
 	spec_sort_particles(&spec->main_vector, spec->incoming_part, spec->tile_offset,
 	        spec->mv_part_offset, source_idx, target_idx, counter, temp_int, temp_float,
-	        spec->n_tiles_x, spec->n_tiles_y, limits_y[0], old_size);
+	        spec->n_tiles_x, spec->n_tiles_y, limits_y[0], old_size, device);
 
 	#pragma oss taskwait on(spec->tile_offset[0 : n_tiles])
 //	acc_set_device_num(device % num_devices, DEVICE_TYPE);
 
-	free(np_per_tile);
-	free(temp_float);
-	free(temp_int);
-	free(counter);
-	free(target_idx);
-	free(source_idx);
+	free_device_buffer(np_per_tile);
+	free_device_buffer(temp_float);
+	free_device_buffer(temp_int);
+	free_device_buffer(counter);
+	free_device_buffer(target_idx);
+	free_device_buffer(source_idx);
 }

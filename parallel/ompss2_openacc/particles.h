@@ -57,6 +57,8 @@ typedef struct {
 typedef struct {
 	char name[MAX_SPNAME_LEN];
 
+	int id;
+
 	// Particle data buffer (CPU)
 	t_particle_vector main_vector;
 	t_particle_vector incoming_part[3];    // Temporary buffer for incoming particles

@@ -22,6 +22,8 @@ enum emf_diag {
 
 typedef struct {
 
+	int id;
+
 	t_vfld *E;
 	t_vfld *B;
 
