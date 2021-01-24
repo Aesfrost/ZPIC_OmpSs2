@@ -28,10 +28,10 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-#include "input/weibel-1000-151M-2048-2048.c"
+#include "input/weibel-2000-151M-2048-2048.c"
 // #include "input/lwfa-4000-16M-2000-512.c"
 //#include "input/warm-2000-538M-2900-2900.c"
-//#include "input/weibel-500-67M-512-512.c"
+//#include "input/weibel-500-4M-512-512.c"
 
 //#pragma oss assert("version.dependencies==regions")
 int main(int argc, const char *argv[])
@@ -60,7 +60,7 @@ int main(int argc, const char *argv[])
 
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-//		if(n == 50) break;
+//		if(n == 1) break;
 //		fprintf(stderr, "n = %i, t = %f\n", n, t);
 
 // 		if (report(n, sim.ndump))

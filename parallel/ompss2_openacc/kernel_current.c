@@ -17,9 +17,6 @@
 // Set the current buffer to zero
 void current_zero_openacc(t_current *current)
 {
-	if(current->id != acc_get_device_num(DEVICE_TYPE))
-		fprintf(stderr, "Current Reset: %d | %d\n", acc_get_device_num(DEVICE_TYPE), current->id);
-
 	// zero fields
 	const int size = current->total_size;
 
@@ -38,9 +35,6 @@ void current_reduction_y_openacc(t_current *current)
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
 	t_vfld *restrict const J_overlap = current->J_upper;
-
-	if(current->id != acc_get_device_num(DEVICE_TYPE))
-		fprintf(stderr, "Current Reduction Y: %d | %d\n", acc_get_device_num(DEVICE_TYPE), current->id);
 
 	#pragma acc parallel loop independent collapse(2)
 	for (int j = -current->gc[1][0]; j < current->gc[1][1]; j++)
@@ -62,9 +56,6 @@ void current_reduction_x_openacc(t_current *current)
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
 	t_vfld *restrict const J_overlap = &current->J[current->nx[0]];
-
-	if(current->id != acc_get_device_num(DEVICE_TYPE))
-		fprintf(stderr, "Current Reduction X: %d | %d\n", acc_get_device_num(DEVICE_TYPE), current->id);
 
 	#pragma acc parallel loop independent collapse(2)
 	for (int j = -current->gc[1][0]; j < current->nx[1] + current->gc[1][1]; j++)

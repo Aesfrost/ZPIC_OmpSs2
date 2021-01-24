@@ -414,13 +414,6 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 	fprintf(stdout, "Number of regions (GPU): %d (effective: %d regions)\n", gpu_regions,
 			get_gpu_regions_effective());
 	fprintf(stdout, "Number of threads: %d\n", n_threads);
-
-#ifdef ENABLE_PREFETCH
-	fprintf(stdout, "Prefetch: Enable\n");
-#else
-	fprintf(stdout, "Prefetch: Disable\n");
-#endif
-
 	fprintf(stdout, "Sort - Bin size: %d\n", TILE_SIZE);
 //	fprintf(stdout, "Time for spec. advance = %f s\n", spec_time() / n_threads);
 //	fprintf(stdout, "Time for emf   advance = %f s\n", emf_time() / n_threads);

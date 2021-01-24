@@ -17,11 +17,8 @@
 	inout(B[-gc[0][0] - gc[1][0] * nrow; total_size]) \
 	label("EMF Advance (GPU, Yee B)")
 void yee_b_openacc(t_vfld *restrict B, const t_vfld *restrict E, const t_fld dt_dx,
-        const t_fld dt_dy, const int nrow, const int nx[2], const int gc[2][2], const int total_size, const int id)
+        const t_fld dt_dy, const int nrow, const int nx[2], const int gc[2][2], const int total_size)
 {
-	if(id != acc_get_device_num(DEVICE_TYPE))
-		fprintf(stderr, "Yee B: %d | %d\n", acc_get_device_num(DEVICE_TYPE), id);
-
 	// Canonical implementation
 	#pragma acc parallel loop independent tile(16, 16)
 	for (int j = -1; j <= nx[1]; j++)
@@ -41,12 +38,8 @@ void yee_b_openacc(t_vfld *restrict B, const t_vfld *restrict E, const t_fld dt_
 	in(J[-gc[0][0] - gc[1][0] * nrow_j; total_size]) label("EMF Advance (GPU, Yee E)")
 void yee_e_openacc(const t_vfld *restrict B, t_vfld *restrict E, const t_vfld *restrict J,
         const const t_fld dt_dx, const t_fld dt_dy, const float dt, const int nrow_e,
-        const int nrow_j, const int nx[2], const int gc[2][2], const int total_size, const int id)
+        const int nrow_j, const int nx[2], const int gc[2][2], const int total_size)
 {
-	if(id != acc_get_device_num(DEVICE_TYPE))
-		fprintf(stderr, "Yee E: %d | %d\n", acc_get_device_num(DEVICE_TYPE), id);
-
-
 	// Canonical implementation
 	#pragma acc parallel loop independent tile(16, 16)
 	for (int j = 0; j <= nx[1] + 1; j++)
@@ -194,10 +187,10 @@ void emf_advance_openacc(t_emf *emf, const t_current *current)
 	const t_fld dt_dy = dt / emf->dx[1];
 
 	// Advance EM field using Yee algorithm modified for having E and B time centered
-	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, emf->gc, emf->total_size, current->id);
+	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, emf->gc, emf->total_size);
 	yee_e_openacc(emf->B, emf->E, current->J, dt_dx, dt_dy, dt, emf->nrow, current->nrow, emf->nx, emf->gc,
-	        emf->total_size, current->id);
-	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, emf->gc, emf->total_size, current->id);
+	        emf->total_size);
+	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, emf->gc, emf->total_size);
 
 	if(emf->moving_window)
 	{
