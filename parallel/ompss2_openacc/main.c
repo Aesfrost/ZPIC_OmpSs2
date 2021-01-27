@@ -29,7 +29,7 @@
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
 #include "input/weibel-2000-151M-2048-2048.c"
-// #include "input/lwfa-4000-16M-2000-512.c"
+// #include "input/lwfa-8000-131M-4000-2048.c"
 //#include "input/warm-2000-538M-2900-2900.c"
 //#include "input/weibel-500-4M-512-512.c"
 
@@ -76,10 +76,6 @@ int main(int argc, const char *argv[])
 
 
 	t1 = timer_ticks();
-
-#ifdef ENABLE_AFFINITY
-	fprintf(stderr, "Affinity Enable\n");
-#endif
 
 #ifndef TEST
 	fprintf(stderr, "\nSimulation ended.\n\n");

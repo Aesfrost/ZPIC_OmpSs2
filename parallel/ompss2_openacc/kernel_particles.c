@@ -1502,24 +1502,16 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 	spec->mv_part_offset[n_tiles] = 0;
 
 //	const int num_devices = acc_get_num_devices(DEVICE_TYPE);
-//	acc_set_device_num(device % num_devices, DEVICE_TYPE);
+	acc_set_device_num(0, DEVICE_TYPE);
 
 	const int max_leaving_np = MAX_LEAVING_PART * spec->main_vector.size_max;
-//	int *restrict source_idx = malloc(max_leaving_np * sizeof(int));
-//	int *restrict target_idx = malloc(max_leaving_np * sizeof(int));
-//	int *restrict counter = malloc(n_tiles * sizeof(int));
-//	int *restrict np_per_tile = malloc(n_tiles * sizeof(int));
-//
-//	int *restrict temp_int = malloc(max_leaving_np * sizeof(int));
-//	float *restrict temp_float = malloc(max_leaving_np * sizeof(float));
+	int *restrict source_idx = malloc(max_leaving_np * sizeof(int));
+	int *restrict target_idx = malloc(max_leaving_np * sizeof(int));
+	int *restrict counter = malloc(n_tiles * sizeof(int));
+	int *restrict np_per_tile = malloc(n_tiles * sizeof(int));
 
-	int *restrict source_idx = alloc_device_buffer(max_leaving_np * sizeof(int), device);
-	int *restrict target_idx = alloc_device_buffer(max_leaving_np * sizeof(int), device);
-	int *restrict counter = alloc_device_buffer(n_tiles * sizeof(int), device);
-	int *restrict np_per_tile = alloc_device_buffer(n_tiles * sizeof(int), device);
-
-	int *restrict temp_int = alloc_device_buffer(max_leaving_np * sizeof(int), device);
-	float *restrict temp_float = alloc_device_buffer(max_leaving_np * sizeof(float), device);
+	int *restrict temp_int = malloc(max_leaving_np * sizeof(int));
+	float *restrict temp_float = malloc(max_leaving_np * sizeof(float));
 
 	int np_inj = 0;
 	for (int i = 0; i < 3; i++)
@@ -1553,10 +1545,10 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 	#pragma oss taskwait on(spec->tile_offset[0 : n_tiles])
 //	acc_set_device_num(device % num_devices, DEVICE_TYPE);
 
-	free_device_buffer(np_per_tile);
-	free_device_buffer(temp_float);
-	free_device_buffer(temp_int);
-	free_device_buffer(counter);
-	free_device_buffer(target_idx);
-	free_device_buffer(source_idx);
+	free(np_per_tile);
+	free(temp_float);
+	free(temp_int);
+	free(counter);
+	free(target_idx);
+	free(source_idx);
 }

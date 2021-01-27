@@ -14,10 +14,7 @@ TARGET = zpic
 
 all: $(TARGET)
 
-prefetch: CFLAGS += -DENABLE_PREFETCH
-prefetch: all
-
-affinity: CFLAGS += -DENABLE_AFFINITY --cuda
+affinity: CFLAGS += -DENABLE_AFFINITY=1 --cuda
 affinity: all
 
 valgrind: $(SOURCE) $(KERNELS)
