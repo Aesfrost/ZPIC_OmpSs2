@@ -432,11 +432,11 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 #ifdef ENABLE_AFFINITY
 	fprintf(stdout, "%s,%d,%f,%d,%d,%d,%d,%f\n", sim->name, get_n_regions(),
 	        (float) get_gpu_regions_effective() / get_n_regions(), gpu_regions, n_threads,
-	        acc_get_num_devices(acc_device_nvidia), 0, timer_interval_seconds(t0, t1));
+	        acc_get_num_devices(acc_device_nvidia), 1, timer_interval_seconds(t0, t1));
 #else
 	fprintf(stdout, "%s,%d,%f,%d,%d,%d,%d,%f\n", sim->name, get_n_regions(),
 	        (float) get_gpu_regions_effective() / get_n_regions(), gpu_regions, n_threads,
-	        acc_get_num_devices(acc_device_nvidia), 1, timer_interval_seconds(t0, t1));
+	        acc_get_num_devices(acc_device_nvidia), 0, timer_interval_seconds(t0, t1));
 #endif
 #endif
 }
