@@ -5,14 +5,14 @@ ZPIC is a 2D PIC (particle-in-cell) plasma simulator that uses uses a finite dif
 
 ## Parallel Versions
 
-|         Version        |  Model |    Decomposition   |             Synchronization             | Data Race  Solution | Asynchronous? | Overdecomposition |
-|:----------------------:|:------:|:------------------:|:---------------------------------------:|:-------------------:|:-------------:|:-----------------:|
-|    zpic-parallel-for   | OpenMP |      Particle      |                 Barriers                |      Reduction      |       No      |         No        |
-|      zpic-tasklike     | OpenMP | Spatial (Row-wise) |                 Barriers                |      Reduction      |       No      |        Yes        |
-|   zpic-reduction-sync  |  OmpSs | Spatial (Row-wise) | Data Dependencies  (Barrier at the end) |      Reduction      |    Partial    |        Yes        |
-|  zpic-commutative-sync |  OmpSs | Spatial (Row-wise) | Data Dependencies  (Barrier at the end) |     Commutative     |    Partial    |        Yes        |
-|  zpic-reduction-async  |  OmpSs | Spatial (Row-wise) |            Data Dependencies            |      Reduction      |      Full     |        Yes        |
-| zpic-commutative-async |  OmpSs | Spatial (Row-wise) |            Data Dependencies            |     Commutative     |      Full     |        Yes        |
+|         Version        |  Model | Decomposition |             Synchronization             | Data Race  Solution | Asynchronous? | Overdecomposition |
+|:----------------------:|:------:|:-------------:|:---------------------------------------:|:-------------------:|:-------------:|:-----------------:|
+|    zpic-parallel-for   | OpenMP |    Particle   |                 Barriers                |      Reduction      |       No      |         No        |
+|      zpic-tasklike     | OpenMP | Spatial (Row) |                 Barriers                |      Reduction      |       No      |        Yes        |
+|   zpic-reduction-sync  |  OmpSs | Spatial (Row) | Data Dependencies  (Barrier at the end) |      Reduction      |    Partial    |        Yes        |
+|  zpic-commutative-sync |  OmpSs | Spatial (Row) | Data Dependencies  (Barrier at the end) |     Commutative     |    Partial    |        Yes        |
+|  zpic-reduction-async  |  OmpSs | Spatial (Row) |            Data Dependencies            |      Reduction      |      Full     |        Yes        |
+| zpic-commutative-async |  OmpSs | Spatial (Row) |            Data Dependencies            |     Commutative     |      Full     |        Yes        |
 
 ## Input / Output 
 
@@ -28,7 +28,7 @@ make
 ./zpic <Number of Regions>
 ```
 ### Serial:
-(zpic-parallel-for follows the same guidelines as the serial version)
+(`zpic-parallel-for` follows the same guidelines as the serial version)
 ```
 make
 ./zpic
