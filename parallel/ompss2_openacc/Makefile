@@ -1,9 +1,9 @@
 # GCC options
 CC = pgimcc
-CFLAGS = --ompss-2 -O3 --openacc -DTEST --cuda
+CFLAGS = --ompss-2 -O3 --openacc --cuda
 
 #CC = pgcc
-#CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -cudalibs -Mcuda=ptxinfo -g
+#CFLAGS = -acc -ta=tesla:managed:cuda10.1 -Minfo=acc -O3 -fast -Mcuda=ptxinfo -g
 
 INCLUDES = 
 LDFLAGS = -lm -lcuda

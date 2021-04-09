@@ -28,12 +28,27 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-#include "input/weibel-2000-151M-2048-2048.c"
+//#include "input/weibel-2000-151M-2048-2048.c"
 // #include "input/lwfa-8000-131M-4000-2048.c"
 //#include "input/warm-2000-538M-2900-2900.c"
-//#include "input/weibel-500-4M-512-512.c"
+//#include "input/weibel-500-67M-512-512.c"
 
-//#pragma oss assert("version.dependencies==regions")
+//#include "input/weak/weibel-2000-151M-2048-2048.c"
+//#include "input/weak/weibel-2000-303M-2900-2900.c"
+//#include "input/weak/weibel-2000-467M-3600-3600.c"
+//#include "input/weak/weibel-2000-604M-4096-4096.c"
+
+//#include "input/weak/warm-2000-268M-2048-2048.c"
+//#include "input/weak/warm-2000-538M-2900-2900.c"
+//#include "input/weak/warm-2000-829M-3600-3600.c"
+#include "input/weak/warm-2000-1073M-4096-4096.c"
+
+//#include "input/weak/cold-2000-268M-2048-2048.c"
+//#include "input/weak/cold-2000-538M-2900-2900.c"
+//#include "input/weak/cold-2000-829M-3600-3600.c"
+//#include "input/weak/cold-2000-1073M-4096-4096.c"
+
+#pragma oss assert("version.dependencies==regions")
 int main(int argc, const char *argv[])
 {
 	if(argc != 4)

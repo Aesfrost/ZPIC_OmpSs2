@@ -213,8 +213,10 @@ void spec_move_vector_int_full(int *restrict vector, int *restrict new_pos, cons
 {
 	int *restrict temp = malloc(size * sizeof(int));
 
+	#pragma acc parallel loop
 	for(int i = 0; i < size; i++) temp[i] = vector[i];
 
+	#pragma acc parallel loop
 	for(int i = 0; i < size; i++)
 		if(new_pos[i] >= 0) vector[new_pos[i]] = temp[i];
 
@@ -226,8 +228,10 @@ void spec_move_vector_float_full(float *restrict vector, int *restrict new_pos, 
 {
 	float *restrict temp = malloc(size * sizeof(float));
 
+	#pragma acc parallel loop
 	for(int i = 0; i < size; i++) temp[i] = vector[i];
 
+	#pragma acc parallel loop
 	for(int i = 0; i < size; i++)
 		if(new_pos[i] >= 0) vector[new_pos[i]] = temp[i];
 
@@ -254,17 +258,23 @@ void spec_organize_in_tiles(t_species *spec, const int limits_y[2], const int de
 	memset(spec->mv_part_offset, 0, (n_tiles_y * n_tiles_x + 1) * sizeof(int));
 
 	// Calculate the histogram (number of particles per tile)
+	#pragma acc set device_num(device)
+	#pragma acc parallel loop
 	for (int i = 0; i < size; i++)
 	{
 		int ix = spec->main_vector.ix[i] / TILE_SIZE;
 		int iy = (spec->main_vector.iy[i] - limits_y[0]) / TILE_SIZE;
+
+		#pragma acc atomic capture
 		pos[i] = tile_offset[ix + iy * n_tiles_x]++;
 	}
+
 
 	// Prefix sum to find the initial idx of each tile in the particle vector
 	prefix_sum_serial(tile_offset, n_tiles_x * n_tiles_y + 1);
 
 	// Calculate the target position of each particle
+	#pragma acc parallel loop
 	for (int i = 0; i < size; i++)
 	{
 		int ix = spec->main_vector.ix[i] / TILE_SIZE;
@@ -286,6 +296,7 @@ void spec_organize_in_tiles(t_species *spec, const int limits_y[2], const int de
 	spec_move_vector_float_full(spec->main_vector.uz, pos, size);
 
 	// Validate all the particles
+	#pragma acc parallel loop
 	for (int k = 0; k < final_size; k++)
 		spec->main_vector.invalid[k] = false;
 
