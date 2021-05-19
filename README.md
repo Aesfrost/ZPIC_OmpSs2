@@ -16,8 +16,8 @@
 - Spatial row-wise decomposition (i.e., simulation split into regions alongside the y axis). Each region is further divided into tiles (16x16 cells). 
 - Particles: Structure of Arrays (SoA) for coalesced memory accesses
 - Highly optimized particle advance (shared memory usage, atomic operations with infrequent memory conflicts, etc.)
-- Highly optimized bucket sort based on [2, 3]
-- NVIDIA Unified Memory + Explicit memory management for critical sections
+- Highly optimized bucket (adapted [2, 3])
+- NVIDIA Unified Memory + explicit memory management for critical sections
 - Support for multi-GPUs systems (OpenMP as management layer: launching kernels, synchronizing devices, etc.)
 
 ### OmpSs + OpenACC:
@@ -71,7 +71,7 @@ make affinity
 
 [1] R. A. Fonseca et al., ‘OSIRIS: A Three-Dimensional, Fully Relativistic Particle in Cell Code for Modeling Plasma Based Accelerators’, in Computational Science — ICCS 2002, Berlin, Heidelberg, 2002, vol. 2331, pp. 342–351. doi: 10.1007/3-540-47789-6_36.
 
-[2]A. Jocksch, F. Hariri, T. M. Tran, S. Brunner, C. Gheller, and L. Villard, ‘A bucket sort algorithm for the particle-in-cell method on manycore architectures’, in Parallel Processing and Applied Mathematics, 2016, pp. 43–52. doi: 10.1007/978-3-319-32149-3_5.
+[2] A. Jocksch, F. Hariri, T. M. Tran, S. Brunner, C. Gheller, and L. Villard, ‘A bucket sort algorithm for the particle-in-cell method on manycore architectures’, in Parallel Processing and Applied Mathematics, 2016, pp. 43–52. doi: 10.1007/978-3-319-32149-3_5.
 
-[3]F. Hariri et al., ‘A portable platform for accelerated PIC codes and its application to GPUs using OpenACC’, Computer Physics Communications, vol. 207, pp. 69–82, Oct. 2016, doi: 10.1016/j.cpc.2016.05.008.
+[3] F. Hariri et al., ‘A portable platform for accelerated PIC codes and its application to GPUs using OpenACC’, Computer Physics Communications, vol. 207, pp. 69–82, Oct. 2016, doi: 10.1016/j.cpc.2016.05.008.
 
