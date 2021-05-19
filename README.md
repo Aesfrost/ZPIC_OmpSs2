@@ -1,4 +1,4 @@
-# ZPIC
+# Parallel ZPIC
 
 [ZPIC](https://github.com/ricardo-fonseca/zpic) is a sequential 2D EM-PIC kinetic plasma simulator based on OSIRIS [1], implementing the same core algorithm and features. From ZPIC code, we developed several parallel versions to explore task-based programming models ([OmpSs-2](https://pm.bsc.es/ompss-2)) and emerging platforms (GPUs with [OpenACC](https://www.openacc.org/)). 
 
