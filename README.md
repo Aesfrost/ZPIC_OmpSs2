@@ -34,32 +34,35 @@
 - Variant: Manual - Manual management of asynchronous queues and tasks (instead of entrusting this function to the NANOS6 runtime)
 
 ## Plasma Experiments / Input
-Please check for the [ZPIC documentation](https://github.com/ricardo-fonseca/zpic/blob/master/doc/Documentation.md) for more information for setting up the simulation parameters. Included experiments: LWFA and Weibel Instability. For organization purpose, the simulation parameters are included on the file name with the following naming scheme: `experiment type - number of time steps - number of particles per species - grid size x - grid size y`
+Please check for the [ZPIC documentation](https://github.com/ricardo-fonseca/zpic/blob/master/doc/Documentation.md) for more information for setting up the simulation parameters. Included experiments: LWFA and Weibel Instability. For organization purpose, the simulation parameters are included on the file name with the following naming scheme: 
+```
+experiment type - number of time steps - number of particles per species - grid size x - grid size y
+```
 
 ## Output
 
-Like the original ZPIC, all versions output the simulation results in the ZDF format. For more information, please visit the [ZDF repository](https://github.com/ricardo-fonseca/zpic/tree/master/zdf).
+Like the original ZPIC, all versions report the simulation parameters in the ZDF format. For more information, please visit the [ZDF repository](https://github.com/ricardo-fonseca/zpic/tree/master/zdf).
 
 ## Compilation and Execution
 
 ### Compilation requirements:
+
+OmpSs-based versions:
 - [Nanos6 Runtime](https://github.com/bsc-pm/nanos6)
 - [Mercurium Compiler](https://github.com/bsc-pm/mcxx)
 
-### OmpSs:
+OpenACC:
+- PGI Compiler 19.10 or greater (later renamed as NVIDIA HPC SDK)
+
+### OmpSs/OpenACC:
 ```
 make
 ./zpic <Number of Regions>
 ```
-### OpenAcc/Serial:
-```
-make
-./zpic
-```
 
-### OmpSs@OpenAcc (under development):
+### OmpSs@OpenAcc:
 ```
-make
+make affinity
 ./zpic <Number of Regions> <Percentage of regions dedicated to GPU> <Number of GPU regions>
 ```
 
