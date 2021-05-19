@@ -1,6 +1,6 @@
 # ZPIC - OmpSs-2 
 
-ZPIC is a 2D PIC (particle-in-cell) plasma simulator that uses uses a finite difference model to simulate eletromagnetic events ([ZPIC suite](https://github.com/ricardo-fonseca/zpic)). This repository contains several parallel implementations of the ZPIC code following either OpenMP or [OmpSs-2](https://github.com/bsc-pm/ompss-2-releases) programming models.
+ZPIC is a 2D PIC (particle-in-cell) plasma simulator that uses uses a finite difference model to simulate eletromagnetic events ([ZPIC suite](https://github.com/ricardo-fonseca/zpic)). This repository contains several parallel implementations of the ZPIC code following either OpenMP or [OmpSs-2](https://github.com/bsc-pm/ompss-2-releases) programming models. 
 
 
 ## Parallel Versions
@@ -22,13 +22,15 @@ Like the original ZPIC, all versions generates reports into the ZDF file format.
 
 ## Compilation and Execution
 
-### OmpSs/OpenMP:
+### Task-based solutions:
+(`zpic-tasklike`, `zpic-reduction-sync`, `zpic-commutative-sync`, `zpic-reduction-async` and `zpic-commutative-async`)
+
 ```
 make
 ./zpic <Number of Regions>
 ```
-### Serial:
-(`zpic-parallel-for` follows the same guidelines as the serial version)
+### Serial/OpenMP parallel for:
+(`zpic-parallel-for` and `zpic-serial`)
 ```
 make
 ./zpic
