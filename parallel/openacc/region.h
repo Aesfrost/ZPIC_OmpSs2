@@ -16,14 +16,10 @@
 #include "emf.h"
 #include "current.h"
 
-#ifdef ENABLE_LD_BALANCE
-#define LD_BALANCE_FREQ 10
-#endif
 // The regions are stored in a double linked list
 typedef struct Region
 {
 	int id;
-	double iter_time;
 
 	int iter;
 
@@ -47,16 +43,6 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 		float box[], float dt, t_region *prev_region, t_region *next_region);
 void region_init(t_region *region);
 void region_set_moving_window(t_region *region);
-void region_add_laser(t_region *region, t_emf_laser *laser);
 void region_delete(t_region *region);
-
-void region_advance(t_region *regions, const int n_regions);
-
-void region_charge_report(const t_region *region, t_part_data *charge, int i_spec);
-void region_emf_report(const t_region *region, t_fld *restrict E_mag, t_fld *restrict B_mag, const int nrow);
-void region_report_iter_time(const t_region *region, double time[], int i);
-
-int get_n_regions();
-int get_gpu_regions_effective();
 
 #endif

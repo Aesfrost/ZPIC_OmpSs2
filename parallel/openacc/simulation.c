@@ -22,6 +22,7 @@
 #include "zdf.h"
 #include "simulation.h"
 #include "timer.h"
+#include "utilities.h"
 
 /*********************************************************************************************
  Initialisation
@@ -84,12 +85,14 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	// Initialise the regions
 	sim->n_regions = n_regions;
 	sim->regions = malloc(n_regions * sizeof(t_region));
+	assert(sim->regions);
 
+	t_region *prev = &sim->regions[n_regions - 1];
 	for(int i = 0; i < n_regions; i++)
 	{
-		t_region *prev = i == 0 ? &sim->regions[n_regions - 1] : &sim->regions[i - 1];
 		t_region *next = i == n_regions - 1 ? &sim->regions[0] : &sim->regions[i + 1];
 		region_new(&sim->regions[i], n_regions, nx, i, n_species, species, box, dt, prev, next);
+		prev = &sim->regions[i];
 	}
 
 	for(int i = 0; i < n_regions; i++)
@@ -106,10 +109,6 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	sprintf(filename, "output/%s/energy.csv", sim->name);
 	file = fopen(filename, "w+");
 	fclose(file);
-
-	sprintf(filename, "output/%s/region_timings.csv", sim->name);
-	file = fopen(filename, "w+");
-	fclose(file);
 }
 
 void sim_delete(t_simulation *sim)
@@ -121,7 +120,23 @@ void sim_delete(t_simulation *sim)
 
 void sim_add_laser(t_simulation *sim, t_emf_laser *laser)
 {
-	region_add_laser(&sim->regions[0], laser);
+	for(int i = 0; i < sim->n_regions; i++)
+		emf_add_laser(&sim->regions[i].local_emf, laser, sim->regions[i].limits_y[0]);
+
+	for(int i = 1; i < sim->n_regions; i++)
+		emf_update_gc_y(&sim->regions[i].local_emf);
+
+	for(int i = 0; i < sim->n_regions; i++)
+		emf_update_gc_x(&sim->regions[i].local_emf);
+
+	for(int i = 0; i < sim->n_regions; i++)
+		div_corr_x(&sim->regions[i].local_emf);
+
+	for(int i = 0; i < sim->n_regions; i++)
+		emf_update_gc_y(&sim->regions[i].local_emf);
+
+	for(int i = 0; i < sim->n_regions; i++)
+		emf_update_gc_x(&sim->regions[i].local_emf);
 }
 
 void sim_set_smooth(t_simulation *sim, t_smooth *smooth)
@@ -156,7 +171,106 @@ void sim_set_moving_window(t_simulation *sim)
  *********************************************************************************************/
 void sim_iter(t_simulation *sim)
 {
-	region_advance(sim->regions, sim->n_regions);
+	const int num_gpus = acc_get_num_devices(DEVICE_TYPE);
+
+	t_region *regions = sim->regions;
+	const int n_regions = sim->n_regions;
+
+	#pragma omp for schedule(static, 1)
+	for(int i = 0; i < n_regions; i++)
+	{
+		const int device = i % num_gpus;
+		acc_set_device_num(device, DEVICE_TYPE);
+
+		// Advance iteration count
+		regions[i].iter++;
+
+		current_zero_openacc(&regions[i].local_current, device);
+
+		for (int k = 0; k < regions[i].n_species; k++)
+		{
+			spec_advance_openacc(&regions[i].species[k], &regions[i].local_emf,
+					&regions[i].local_current, regions[i].limits_y, device);
+			if (regions[i].species[k].moving_window)
+				spec_move_window_openacc(&regions[i].species[k], regions[i].limits_y, device);
+			spec_check_boundaries_openacc(&regions[i].species[k], regions[i].limits_y, device);
+		}
+
+		if (!regions[i].local_current.moving_window)
+			current_reduction_x_openacc(&regions[i].local_current, device);
+	}
+
+	#pragma omp for schedule(static, 1)
+	for(int i = 0; i < n_regions; i++)
+	{
+		const int device = i % num_gpus;
+		acc_set_device_num(i % num_gpus, DEVICE_TYPE);
+
+		for (int k = 0; k < regions[i].n_species; k++)
+			spec_sort_openacc(&regions[i].species[k], regions[i].limits_y, device);
+		current_reduction_y_openacc(&regions[i].local_current, device);
+	}
+
+	if (regions[0].local_current.smooth.xtype != NONE)
+	{
+		#pragma omp for schedule(static, 1)
+		for(int i = 0; i < n_regions; i++)
+		{
+			const int device = i % num_gpus;
+			acc_set_device_num(i % num_gpus, DEVICE_TYPE);
+			current_smooth_x_openacc(&regions[i].local_current, device);
+		}
+	}
+
+	if (regions[0].local_current.smooth.ytype != NONE)
+	{
+		for (int k = 0; k < regions[0].local_current.smooth.ylevel; k++)
+		{
+			#pragma omp for schedule(static, 1)
+			for(int i = 0; i < n_regions; i++)
+				current_smooth_y(&regions[i].local_current, BINOMIAL);
+
+			#pragma omp for schedule(static, 1)
+			for(int i = 0; i < n_regions; i++)
+			{
+				const int device = i % num_gpus;
+				acc_set_device_num(device, DEVICE_TYPE);
+				current_gc_update_y_openacc(&regions[i].local_current, device);
+			}
+		}
+
+		if (regions[0].local_current.smooth.ytype == COMPENSATED)
+		{
+			#pragma omp for schedule(static, 1)
+			for(int i = 0; i < n_regions; i++)
+				current_smooth_y(&regions[i].local_current, COMPENSATED);
+
+			#pragma omp for schedule(static, 1)
+			for(int i = 0; i < n_regions; i++)
+			{
+				const int device = i % num_gpus;
+
+				acc_set_device_num(device, DEVICE_TYPE);
+				current_gc_update_y_openacc(&regions[i].local_current, device);
+			}
+		}
+	}
+
+	#pragma omp for schedule(static, 1)
+	for(int i = 0; i < n_regions; i++)
+	{
+		const int device = i % num_gpus;
+		acc_set_device_num(device, DEVICE_TYPE);
+		emf_advance_openacc(&regions[i].local_emf, &regions[i].local_current, device);
+	}
+
+	#pragma omp for schedule(static, 1)
+	for(int i = 0; i < n_regions; i++)
+	{
+		const int device = i % num_gpus;
+		acc_set_device_num(device, DEVICE_TYPE);
+		emf_update_gc_y_openacc(&regions[i].local_emf, device);
+	}
 }
 
 /*********************************************************************************************
@@ -207,161 +321,6 @@ void sim_report_energy(t_simulation *sim)
 	}
 }
 
-void save_data_csv(t_fld *grid, unsigned int sizeX, unsigned int sizeY, const char filename[128],
-		const char sim_name[64])
-{
-	static bool dir_exists = false;
-
-	char fullpath[256];
-
-	if(!dir_exists)
-	{
-		//Create the output directory if it doesn't exists
-		strcpy(fullpath, "output");
-		struct stat sb;
-		if (stat(fullpath, &sb) == -1)
-		{
-			mkdir(fullpath, 0700);
-		}
-
-		strcat(fullpath, "/");
-		strcat(fullpath, sim_name);
-		if (stat(fullpath, &sb) == -1)
-		{
-			mkdir(fullpath, 0700);
-		}
-	}else
-	{
-		strcpy(fullpath, "output/");
-		strcat(fullpath, sim_name);
-	}
-
-	strcat(fullpath, "/");
-	strcat(fullpath, filename);
-
-	FILE *file = fopen(fullpath, "wb+");
-
-	if (file != NULL)
-	{
-		for (unsigned int j = 0; j < sizeY; j++)
-		{
-			for (unsigned int i = 0; i < sizeX - 1; i++)
-			{
-				fprintf(file, "%f;", grid[i + j * sizeX]);
-			}
-			fprintf(file, "%f\n", grid[(j + 1) * sizeX - 1]);
-		}
-	} else
-	{
-		printf("Couldn't open %s", filename);
-		exit(1);
-	}
-
-	fclose(file);
-}
-
-// Save the particles charge map to a CSV file
-void sim_report_charge_csv(t_simulation *sim)
-{
-	int n_species = sim->regions[0].n_species;
-	t_part_data *charge, *buf, *b, *c;
-	size_t size = (sim->nx[0] + 1) * (sim->nx[1] + 1) * sizeof(t_part_data);  // Add 1 guard cell to the upper boundary
-	size_t buf_size = sim->nx[0] * sim->nx[1] * sizeof(t_part_data);
-	charge = malloc(size);
-	buf = malloc(buf_size);
-
-	for (int n = 0; n < n_species; n++)
-	{
-		memset(charge, 0, size);
-		memset(buf, 0, buf_size);
-
-		for(int i = 0; i < sim->n_regions; i++)
-			spec_deposit_charge(&sim->regions[i].species[n], charge);
-
-		// Correct boundary values
-		// x
-		if (!sim->moving_window) for (int j = 0; j < sim->nx[1] + 1; j++)
-			charge[0 + j * (sim->nx[0] + 1)] += charge[sim->nx[0] + j * (sim->nx[0] + 1)];
-
-		// y - Periodic boundaries
-		for (int i = 0; i < sim->nx[0] + 1; i++)
-			charge[i] += charge[i + sim->nx[1] * (sim->nx[0] + 1)];
-
-		b = buf;
-		c = charge;
-
-		for (int j = 0; j < sim->nx[1]; j++)
-		{
-			for (int i = 0; i < sim->nx[0]; i++)
-				b[i] = c[i];
-
-			b += sim->nx[0];
-			c += sim->nx[0] + 1;
-		}
-
-		char filename[128];
-		sprintf(filename, "%s_charge_map_%d.csv", sim->regions[0].species[n].name, sim->iter);
-		save_data_csv(buf, sim->nx[0], sim->nx[1], filename, sim->name);
-	}
-
-	free(charge);
-	free(buf);
-}
-
-// Save the EMF magnitude to a CSV version
-void sim_report_emf_csv(t_simulation *sim)
-{
-	char filenameE[128];
-	char filenameB[128];
-
-	t_fld *restrict E_magnitude = malloc(sim->nx[0] * sim->nx[1] * sizeof(t_fld));
-	t_fld *restrict B_magnitude = malloc(sim->nx[0] * sim->nx[1] * sizeof(t_fld));
-
-	t_region *restrict region = &sim->regions[0];
-	do
-	{
-		emf_report_magnitude(&region->local_emf, E_magnitude, B_magnitude, sim->nx[0], region->limits_y[0]);
-		region = region->next;
-	} while (region->id != 0);
-
-	sprintf(filenameE, "e_mag_map_%d.csv", sim->iter);
-	sprintf(filenameB, "b_mag_map_%d.csv", sim->iter);
-
-	save_data_csv(E_magnitude, sim->nx[0], sim->nx[1], filenameE, sim->name);
-	save_data_csv(B_magnitude, sim->nx[0], sim->nx[1], filenameB, sim->name);
-
-	free(E_magnitude);
-	free(B_magnitude);
-}
-
-// Save the region time in a CSV file (Disabled due to a compatibility issue)
-//void sim_region_timings(t_simulation *sim)
-//{
-//	char filename[128];
-//
-//	sprintf(filename, "output/%s/region_timings.csv", sim->name);
-//	FILE *file = fopen(filename, "a+");
-//
-//	if (file)
-//	{
-//		t_region *restrict region = &sim->regions[0];
-//
-//		while (region->next->id != 0)
-//		{
-//			fprintf(file, "%lf;", region->iter_time);
-//			region = region->next;
-//		}
-//
-//		fprintf(file, "%lf\n", region->iter_time);
-//		fclose(file);
-//
-//	} else
-//	{
-//		printf("Error on open file: %s", filename);
-//		exit(1);
-//	}
-//}
-
 void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int n_iterations)
 {
 	int npart = 0;
@@ -389,18 +348,10 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 	fprintf(stdout, "Prefetch: Disable\n");
 #endif
 
-//	fprintf(stdout, "Time for spec. advance = %f s\n", spec_time() / n_threads);
-//	fprintf(stdout, "Time for emf   advance = %f s\n", emf_time() / n_threads);
 	fprintf(stdout, "Total simulation time  = %f s\n", timer_interval_seconds(t0, t1));
 	fprintf(stdout, "Time per iteration = %f ms\n", timer_interval_seconds(t0, t1) / n_iterations * 1E3);
 	fprintf(stdout, "\n");
 
-//	if (spec_time() > 0)
-//	{
-//		double perf = spec_perf();
-//		fprintf(stderr, "Particle advance [nsec/part] = %f \n", 1.e9 * perf);
-//		fprintf(stderr, "Particle advance [Mpart/sec] = %f \n", 1.e-6 / perf);
-//	}
 #else
 #ifdef ENABLE_PREFETCH
 	printf("%s,%d,%d,%d,1,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), TILE_SIZE, timer_interval_seconds(t0, t1));
@@ -458,13 +409,6 @@ void sim_report_grid_zdf(t_simulation *sim, enum report_grid_type type, const in
 	}
 
 	free(global_buf);
-}
-
-// Wrapper for CSV report
-void sim_report_csv(t_simulation *sim)
-{
-	sim_report_emf_csv(sim);
-	sim_report_charge_csv(sim);
 }
 
 // Save a particle property to a ZDF file

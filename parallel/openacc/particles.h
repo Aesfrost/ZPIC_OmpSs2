@@ -19,16 +19,10 @@
 #include "emf.h"
 #include "current.h"
 
-#define LOCAL_BUFFER_SIZE 1024
 #define THREAD_BLOCK 320
-#define TILE_SIZE 16
 #define MAX_SPNAME_LEN 32
 #define EXTRA_NP 0.05 // Overallocation (fraction of the total)
-#define MAX_LEAVING_PART 0.2
-
-#define MAX_VALUE(x, y) x > y ? x : y
-#define MIN_VALUE(x, y) x < y ? x : y
-#define LTRIM(x) (x >= 1.0f) - (x < 0.0f)
+#define MAX_LEAVING_PART 0.3 // Maximum percentage of particles that can exchanged between tiles
 
 enum density_type {
 	UNIFORM, STEP, SLAB
@@ -117,25 +111,17 @@ void spec_inject_particles(t_particle_vector *part_vector, const int range[][2],
 		const t_density *part_density, const t_part_data dx[2], const int n_move,
 		const t_part_data ufl[3], const t_part_data uth[3]);
 void spec_delete(t_species *spec);
-void spec_organize_in_tiles(t_species *spec, const int limits_y[2], const int device);
+void spec_organize_in_tiles(t_species *spec, const int limits_y[2]);
 
 // Utilities
 void part_vector_alloc(t_particle_vector *vector, const int size_max);
 void part_vector_free(t_particle_vector *vector);
 void part_vector_realloc(t_particle_vector *vector, const int new_size);
-void part_vector_assign_valid_part(const t_particle_vector *source, const int source_idx,
+void part_vector_assign_part(const t_particle_vector *source, const int source_idx,
 									t_particle_vector *target, const int target_idx);
 void part_vector_memcpy(const t_particle_vector *source, t_particle_vector *target, const int begin,
 						 const int size);
-
-// Report - General
-double spec_time(void);
-double spec_perf(void);
-
-// CPU Tasks
-void spec_advance(t_species *spec, t_emf *emf, t_current *current, int limits_y[2]);
-void spec_post_processing(t_species *spec, const int limits_y[2]);
-void spec_update_main_vector(t_species *spec);
+void part_vector_mem_advise(t_particle_vector *vector, const int advise, const int device);
 
 // OpenAcc Tasks
 void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict const emf,
@@ -143,10 +129,6 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 void spec_move_window_openacc(t_species *restrict spec, const int limits_y[2], const int device);
 void spec_check_boundaries_openacc(t_species *restrict spec, const int limits_y[2], const int device);
 void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device);
-
-#ifdef ENABLE_LD_BALANCE
-void spec_load_balance(t_species *spec_lower, t_species *spec_upper, const float threshold, const int region_offset);
-#endif
 
 #ifdef ENABLE_PREFETCH
 void spec_prefetch_openacc(t_particle_vector *part, const int device, void *stream);

@@ -11,21 +11,8 @@
 #define __ZPIC__
 
 #include <openacc.h>
-
-// NVIDIA GPUs
-#define DEVICE_TYPE acc_device_nvidia
-
-#define TILE_SIZE 16
-
-// Extra ghost cells in order to particles to continue
-// in their assigned region even if they are some cells
-// outside. Asymmetrical (only in upper side of the region).
-// Should be multiple of TILE_SIZE
-#ifdef ENABLE_LD_BALANCE
-#define EXTRA_GC 32
-#else
-#define EXTRA_GC 0
-#endif
+#include <cuda.h>
+#include <vector_types.h>
 
 typedef float t_fld;
 typedef float t_part_data;
@@ -34,18 +21,17 @@ typedef struct {
 	t_fld x, y, z;
 } t_vfld;
 
-typedef struct {
-	int x, y;
-} t_integer2;
-
-typedef struct {
-	t_part_data x, y;
-} t_float2;
-
-typedef struct {
-	t_part_data x, y, z;
-} t_float3;
-
+//typedef struct {
+//	int x, y;
+//} t_integer2;
+//
+//typedef struct {
+//	t_part_data x, y;
+//} t_float2;
+//
+//typedef struct {
+//	t_part_data x, y, z;
+//} t_float3;
 
 /* ANSI C does not define math constants */
 

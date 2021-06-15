@@ -79,12 +79,11 @@ typedef struct {
 // Setup
 void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt);
 void emf_delete(t_emf *emf);
-void emf_overlap_zone(t_emf *emf, t_emf *upper);
+void emf_overlap_zone(t_emf *emf, t_emf *upper, const int device);
 void emf_add_laser(t_emf *const emf, t_emf_laser *laser, int offset_y);
 void div_corr_x(t_emf *emf);
 
 // General Report
-double emf_time(void);
 double emf_get_energy(t_emf *emf);
 
 // ZDF Report
@@ -93,23 +92,12 @@ void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const
 void emf_report(const float *restrict global_buffer, const float box[2], const int true_nx[2],
 		const int iter, const float dt, const char field, const char fc, const char path[128]);
 
-// CSV Report
-void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag,
-		t_fld *restrict B_mag, const int nrow, const int offset);
-
 // CPU Tasks
-void emf_advance(t_emf *emf, const t_current *current);
 void emf_update_gc_y(t_emf *emf);
 void emf_update_gc_x(t_emf *emf);
 
 // OpenAcc Tasks
 void emf_advance_openacc(t_emf *emf, const t_current *current, const int device);
 void emf_update_gc_y_openacc(t_emf *emf, const int device);
-
-// Prefetch
-#ifdef ENABLE_PREFETCH
-void emf_prefetch_openacc(t_vfld *buf, const size_t size, const int device, void *stream);
-#endif
-
 
 #endif

@@ -64,7 +64,7 @@ typedef struct {
 // Setup
 void current_new(t_current *current, int nx[], t_fld box[], float dt);
 void current_delete(t_current *current);
-void current_overlap_zone(t_current *current, t_current *upper_current);
+void current_overlap_zone(t_current *current, t_current *upper_current, const int device);
 
 // ZDF report
 void current_reconstruct_global_buffer(t_current *current, float *global_buffer, const int offset,
@@ -73,23 +73,12 @@ void current_report(const float *restrict global_buffer, const int iter_num, con
 		const float box[2], const float dt, const char jc, const char path[128]);
 
 // CPU Tasks
-void current_zero(t_current *current);
-void current_reduction_y(t_current *current); // Each region only update the zone in the top edge
-void current_reduction_x(t_current *current);
-void current_gc_update_y(t_current *current);
-void current_smooth_x(t_current *current);
 void current_smooth_y(t_current *current, enum smooth_type type);
 
 // OpenAcc Tasks
 void current_zero_openacc(t_current *current, const int device);
-void current_reduction_y_openacc(t_current *current, const int device);
 void current_reduction_x_openacc(t_current *current, const int device);
 void current_smooth_x_openacc(t_current *current, const int device);
+void current_reduction_y_openacc(t_current *current, const int device);
 void current_gc_update_y_openacc(t_current *current, const int device);
-
-// Prefetch
-#ifdef ENABLE_PREFETCH
-void current_prefetch_openacc(t_vfld *buf, const size_t size, const int device, void *stream);
-#endif
-
 #endif

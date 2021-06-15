@@ -65,9 +65,7 @@ void sim_report(t_simulation *sim);
 void sim_report_grid_zdf(t_simulation *sim, enum report_grid_type type, const int coord);
 void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_type, const int pha_nx[],
 		const float pha_range[][2]);
-void sim_report_csv(t_simulation *sim);
 void sim_report_energy(t_simulation *sim);
 void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int n_iterations);
-//void sim_region_timings(t_simulation *sim);
 
 #endif
