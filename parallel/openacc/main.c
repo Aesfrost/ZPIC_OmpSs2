@@ -30,25 +30,11 @@
 #include "utilities.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
- #include "input/weibel-500-67M-512-512.c"
-// #include "input/lwfa-4000-16M-2000-512.c"
+#include "input/weibel-500-67M-512-512.c"
+//  #include "input/lwfa-4000-16M-2000-512.c"
+//#include "input/warm-500-67M-512-512.c"
 //#include "input/weibel-1000-340M-3072-3072.c"
 //#include "input/lwfa-8000-74M-4000-2048.c"
-
-//#include "input/weak/weibel-2000-151M-2048-2048.c"
-//#include "input/weak/weibel-2000-303M-2900-2900.c"
-//#include "input/weak/weibel-2000-467M-3600-3600.c"
-//#include "input/weak/weibel-2000-604M-4096-4096.c"
-
-//#include "input/weak/warm-2000-268M-2048-2048.c"
-//#include "input/weak/warm-2000-538M-2900-2900.c"
-//#include "input/weak/warm-2000-829M-3600-3600.c"
-//#include "input/weak/warm-2000-1073M-4096-4096.c"
-
-//#include "input/weak/cold-2000-268M-2048-2048.c"
-//#include "input/weak/cold-2000-538M-2900-2900.c"
-//#include "input/weak/cold-2000-829M-3600-3600.c"
-//#include "input/weak/cold-2000-1073M-4096-4096.c"
 
 int main(int argc, const char *argv[])
 {
@@ -78,17 +64,16 @@ int main(int argc, const char *argv[])
 	{
 		for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 		{
-// 			if(n == 100) break;
-			
-//			#pragma omp master
-//			{
-//				fprintf(stderr, "n = %i, t = %f\n", n, t);
-// 				if (report(n, sim.ndump)) sim_report(&sim);
-//				sim.iter++;
-//			}
-//
-//			#pragma omp barrier
+#ifndef TEST
+			#pragma omp master
+			{
+				fprintf(stderr, "n = %i, t = %f\n", n, t);
+ 				if (report(n, sim.ndump)) sim_report(&sim);
+				sim.iter++;
+			}
 
+			#pragma omp barrier
+#endif
 			sim_iter(&sim);
 		}
 	}

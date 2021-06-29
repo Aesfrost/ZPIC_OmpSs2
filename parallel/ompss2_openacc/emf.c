@@ -20,13 +20,6 @@
 #include "timer.h"
 #include "utilities.h"
 
-static double _emf_time = 0.0;
-
-double emf_time(void)
-{
-	return _emf_time;
-}
-
 /*********************************************************************************************
  Constructor / Destructor
  *********************************************************************************************/
@@ -44,15 +37,8 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt, const int device
 	emf->total_size = size;
 	emf->overlap_size = (gc[0][0] + nx[0] + gc[0][1]) * (gc[1][0] + gc[1][1]);
 
-	if(device >= 0)
-	{
-		emf->E_buf = alloc_device_buffer(size * sizeof(t_vfld), device);
-		emf->B_buf = alloc_device_buffer(size * sizeof(t_vfld), device);
-	}else
-	{
-		emf->E_buf = malloc(size * sizeof(t_vfld));
-		emf->B_buf = malloc(size * sizeof(t_vfld));
-	}
+	emf->E_buf = alloc_device_buffer(size * sizeof(t_vfld), device);
+	emf->B_buf = alloc_device_buffer(size * sizeof(t_vfld), device);
 
 	assert(emf->E_buf && emf->B_buf);
 
@@ -93,24 +79,22 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt, const int device
 	emf->n_move = 0;
 }
 
-// Set the overlap zone between regions (upper zone only)
-void emf_overlap_zone(t_emf *emf, t_emf *upper)
+// Set the overlap zone between regions (below zone only)
+void emf_overlap_zone(t_emf *emf, t_emf *below, const int device)
 {
-	emf->B_upper = upper->B + (upper->nx[1] - upper->gc[1][0]) * upper->nrow;
-	emf->E_upper = upper->E + (upper->nx[1] - upper->gc[1][0]) * upper->nrow;
+	emf->B_below = below->B + (below->nx[1] - below->gc[1][0]) * below->nrow;
+	emf->E_below = below->E + (below->nx[1] - below->gc[1][0]) * below->nrow;
+
+#ifdef ENABLE_ADVISE
+	cuMemAdvise(emf->B_below - emf->gc[0][0], emf->overlap_size, CU_MEM_ADVISE_SET_ACCESSED_BY, device);
+	cuMemAdvise(emf->E_below - emf->gc[0][0], emf->overlap_size, CU_MEM_ADVISE_SET_ACCESSED_BY, device);
+#endif
 }
 
-void emf_delete(t_emf *emf, const bool is_on_device)
+void emf_delete(t_emf *emf)
 {
-	if(is_on_device)
-	{
-		free_device_buffer(emf->E_buf);
-		free_device_buffer(emf->B_buf);
-	}else
-	{
-		free(emf->E_buf);
-		free(emf->B_buf);
-	}
+	free_device_buffer(emf->E_buf);
+	free_device_buffer(emf->B_buf);
 
 	emf->E_buf = NULL;
 	emf->B_buf = NULL;
@@ -299,12 +283,84 @@ void emf_add_laser(t_emf *const emf, t_emf_laser *laser, int offset_y)
 	}
 }
 
+// Update the ghost cells in the X direction (CPU)
+void emf_update_gc_x(t_emf *emf)
+{
+	int i, j;
+	const int nrow = emf->nrow;
+
+	t_vfld *const restrict E = emf->E;
+	t_vfld *const restrict B = emf->B;
+
+	// For moving window don't update x boundaries
+	if (!emf->moving_window)
+	{
+		// x
+		for (j = -emf->gc[1][0]; j < emf->nx[1] + emf->gc[1][1]; j++)
+		{
+
+			// lower
+			for (i = -emf->gc[0][0]; i < 0; i++)
+			{
+				E[i + j * nrow].x = E[emf->nx[0] + i + j * nrow].x;
+				E[i + j * nrow].y = E[emf->nx[0] + i + j * nrow].y;
+				E[i + j * nrow].z = E[emf->nx[0] + i + j * nrow].z;
+
+				B[i + j * nrow].x = B[emf->nx[0] + i + j * nrow].x;
+				B[i + j * nrow].y = B[emf->nx[0] + i + j * nrow].y;
+				B[i + j * nrow].z = B[emf->nx[0] + i + j * nrow].z;
+			}
+
+			// below
+			for (i = 0; i < emf->gc[0][1]; i++)
+			{
+				E[emf->nx[0] + i + j * nrow].x = E[i + j * nrow].x;
+				E[emf->nx[0] + i + j * nrow].y = E[i + j * nrow].y;
+				E[emf->nx[0] + i + j * nrow].z = E[i + j * nrow].z;
+
+				B[emf->nx[0] + i + j * nrow].x = B[i + j * nrow].x;
+				B[emf->nx[0] + i + j * nrow].y = B[i + j * nrow].y;
+				B[emf->nx[0] + i + j * nrow].z = B[i + j * nrow].z;
+			}
+
+		}
+	}
+}
+
+// Update ghost cells in the below overlap zone (Y direction, CPU)
+void emf_update_gc_y(t_emf *emf)
+{
+	int i, j;
+	const int nrow = emf->nrow;
+
+	t_vfld *const restrict E = emf->E;
+	t_vfld *const restrict B = emf->B;
+	t_vfld *const restrict E_overlap = emf->E_below;
+	t_vfld *const restrict B_overlap = emf->B_below;
+
+	// y
+	for (i = -emf->gc[0][0]; i < emf->nx[0] + emf->gc[0][1]; i++)
+	{
+		for (j = -emf->gc[1][0]; j < 0; j++)
+		{
+			B[i + j * nrow] = B_overlap[i + (j + emf->gc[1][0]) * nrow];
+			E[i + j * nrow] = E_overlap[i + (j + emf->gc[1][0]) * nrow];
+		}
+
+		for (j = 0; j < emf->gc[1][1]; j++)
+		{
+			B_overlap[i + (j + emf->gc[1][0]) * nrow] = B[i + j * nrow];
+			E_overlap[i + (j + emf->gc[1][0]) * nrow] = E[i + j * nrow];
+		}
+	}
+}
+
 /*********************************************************************************************
  Diagnostics
  *********************************************************************************************/
-// Reconstruct the global buffer for the eletric/magnetic field in a given direction
+// Reconstruct the simulation grid from all regions (eletric/magnetic field for a given direction)
 void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const int offset,
-		const char field, const char fc)
+								   enum emf_field_type field, const char fc)
 {
 	t_vfld *restrict f;
 
@@ -367,7 +423,8 @@ void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const
 
 // Save the reconstructed buffer in a ZDF file
 void emf_report(const float *restrict global_buffer, const float box[2], const int true_nx[2],
-		const int iter, const float dt, const char field, const char fc, const char path[128])
+				const int iter, const float dt, const char field, const char fc,
+				const char path[128])
 {
 	char vfname[3];
 
@@ -439,50 +496,18 @@ double emf_get_energy(t_emf *emf)
 	return result * 0.5 * emf->dx[0] * emf->dx[1];
 }
 
-// Calculate the magnitude of the EMF for a given region
-void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag, t_fld *restrict B_mag,
-		const int nrow, const int offset)
-{
-	const unsigned int nrows = emf->nrow;
-	t_vfld *const restrict E = emf->E;
-	t_vfld *const restrict B = emf->B;
-
-	for (unsigned int j = 0; j < emf->nx[1]; j++)
-	{
-		for (unsigned int i = 0; i < emf->nx[0]; i++)
-		{
-			E_mag[i + (j + offset) * nrow] = sqrt(E[i + j * nrows].x * E[i + j * nrows].x
-							+ E[i + j * nrows].y * E[i + j * nrows].y
-							+ E[i + j * nrows].z * E[i + j * nrows].z);
-
-			B_mag[i + (j + offset) * nrow] = sqrt(B[i + j * nrows].x * B[i + j * nrows].x
-							+ B[i + j * nrows].y * B[i + j * nrows].y
-							+ B[i + j * nrows].z * B[i + j * nrows].z);
-		}
-	}
-
-}
 /*********************************************************************************************
  Field solver
  *********************************************************************************************/
 
-void yee_b(t_emf *emf, const float dt)
+void yee_b_openacc(t_vfld *restrict B, const t_vfld *restrict E, const t_fld dt_dx,
+				   const t_fld dt_dy, const int nrow, const int nx[2], const int queue)
 {
-	// these must not be unsigned because we access negative cell indexes
-	int i, j;
-	t_fld dt_dx, dt_dy;
-
-	t_vfld *const restrict B = emf->B;
-	const t_vfld *const restrict E = emf->E;
-
-	dt_dx = dt / emf->dx[0];
-	dt_dy = dt / emf->dx[1];
-
 	// Canonical implementation
-	const int nrow = emf->nrow;
-	for (j = -1; j <= emf->nx[1]; j++)
+	#pragma acc parallel loop independent tile(16, 16) async(queue)
+	for (int j = -1; j <= nx[1]; j++)
 	{
-		for (i = -1; i <= emf->nx[0]; i++)
+		for (int i = -1; i <= nx[0]; i++)
 		{
 			B[i + j * nrow].x += (-dt_dy * (E[i + (j + 1) * nrow].z - E[i + j * nrow].z));
 			B[i + j * nrow].y += (dt_dx * (E[(i + 1) + j * nrow].z - E[i + j * nrow].z));
@@ -492,168 +517,162 @@ void yee_b(t_emf *emf, const float dt)
 	}
 }
 
-void yee_e(t_emf *emf, const t_current *current, const float dt)
+void yee_e_openacc(const t_vfld *restrict B, t_vfld *restrict E, const t_vfld *restrict J,
+				   const const t_fld dt_dx, const t_fld dt_dy, const float dt, const int nrow_e,
+				   const int nrow_j, const int nx[2], const int queue)
 {
-	// these must not be unsigned because we access negative cell indexes
-	int i, j;
-	t_fld dt_dx, dt_dy;
-
-	dt_dx = dt / emf->dx[0];
-	dt_dy = dt / emf->dx[1];
-
-	t_vfld *const restrict E = emf->E;
-	const t_vfld *const restrict B = emf->B;
-	const t_vfld *const restrict J = current->J;
-
 	// Canonical implementation
-	const int nrow_e = emf->nrow;
-	const int nrow_j = current->nrow;
-
-	for (j = 0; j <= emf->nx[1] + 1; j++)
+	#pragma acc parallel loop independent tile(16, 16) async(queue)
+	for (int j = 0; j <= nx[1] + 1; j++)
 	{
-		for (i = 0; i <= emf->nx[0] + 1; i++)
+		for (int i = 0; i <= nx[0]; i++)
 		{
 			E[i + j * nrow_e].x += (+dt_dy * (B[i + j * nrow_e].z - B[i + (j - 1) * nrow_e].z))
 					- dt * J[i + j * nrow_j].x;
-
 			E[i + j * nrow_e].y += (-dt_dx * (B[i + j * nrow_e].z - B[(i - 1) + j * nrow_e].z))
 					- dt * J[i + j * nrow_j].y;
-
 			E[i + j * nrow_e].z += (+dt_dx * (B[i + j * nrow_e].y - B[(i - 1) + j * nrow_e].y)
-					- dt_dy * (B[i + j * nrow_e].x - B[i + (j - 1) * nrow_e].x))
-					- dt * J[i + j * nrow_j].z;
-
+					- dt_dy * (B[i + j * nrow_e].x - B[i + (j - 1) * nrow_e].x)) - dt * J[i + j * nrow_j].z;
 		}
 	}
 }
 
-// Update the ghost cells in the X direction (CPU)
-void emf_update_gc_x(t_emf *emf)
+// Update the ghost cells in the X direction (OpenAcc)
+void emf_update_gc_x_openacc(t_vfld *restrict E, t_vfld *restrict B, const int nrow, const int nx[2],
+							 const int gc[2][2], const int queue)
 {
-	int i, j;
-	const int nrow = emf->nrow;
-
-	t_vfld *const restrict E = emf->E;
-	t_vfld *const restrict B = emf->B;
-
-	// For moving window don't update x boundaries
-	if (!emf->moving_window)
+	#pragma acc parallel loop collapse(2) independent async(queue)
+	for (int j = -gc[1][0]; j < nx[1] + gc[1][1]; j++)
 	{
-		// x
-		for (j = -emf->gc[1][0]; j < emf->nx[1] + emf->gc[1][1]; j++)
+		for (int i = -gc[0][0]; i < gc[0][1]; i++)
 		{
-
-			// lower
-			for (i = -emf->gc[0][0]; i < 0; i++)
+			if (i < 0)
 			{
-				E[i + j * nrow].x = E[emf->nx[0] + i + j * nrow].x;
-				E[i + j * nrow].y = E[emf->nx[0] + i + j * nrow].y;
-				E[i + j * nrow].z = E[emf->nx[0] + i + j * nrow].z;
+				E[i + j * nrow].x = E[nx[0] + i + j * nrow].x;
+				E[i + j * nrow].y = E[nx[0] + i + j * nrow].y;
+				E[i + j * nrow].z = E[nx[0] + i + j * nrow].z;
 
-				B[i + j * nrow].x = B[emf->nx[0] + i + j * nrow].x;
-				B[i + j * nrow].y = B[emf->nx[0] + i + j * nrow].y;
-				B[i + j * nrow].z = B[emf->nx[0] + i + j * nrow].z;
-			}
-
-			// upper
-			for (i = 0; i < emf->gc[0][1]; i++)
+				B[i + j * nrow].x = B[nx[0] + i + j * nrow].x;
+				B[i + j * nrow].y = B[nx[0] + i + j * nrow].y;
+				B[i + j * nrow].z = B[nx[0] + i + j * nrow].z;
+			} else
 			{
-				E[emf->nx[0] + i + j * nrow].x = E[i + j * nrow].x;
-				E[emf->nx[0] + i + j * nrow].y = E[i + j * nrow].y;
-				E[emf->nx[0] + i + j * nrow].z = E[i + j * nrow].z;
+				E[nx[0] + i + j * nrow].x = E[i + j * nrow].x;
+				E[nx[0] + i + j * nrow].y = E[i + j * nrow].y;
+				E[nx[0] + i + j * nrow].z = E[i + j * nrow].z;
 
-				B[emf->nx[0] + i + j * nrow].x = B[i + j * nrow].x;
-				B[emf->nx[0] + i + j * nrow].y = B[i + j * nrow].y;
-				B[emf->nx[0] + i + j * nrow].z = B[i + j * nrow].z;
+				B[nx[0] + i + j * nrow].x = B[i + j * nrow].x;
+				B[nx[0] + i + j * nrow].y = B[i + j * nrow].y;
+				B[nx[0] + i + j * nrow].z = B[i + j * nrow].z;
 			}
-
 		}
 	}
 }
 
-// Update ghost cells in the upper overlap zone (Y direction, CPU)
-void emf_update_gc_y(t_emf *emf)
+// Update ghost cells in the below overlap zone (Y direction, OpenAcc)
+void emf_update_gc_y_openacc(t_emf *emf)
 {
-	int i, j;
 	const int nrow = emf->nrow;
 
 	t_vfld *const restrict E = emf->E;
 	t_vfld *const restrict B = emf->B;
-	t_vfld *const restrict E_overlap = emf->E_upper;
-	t_vfld *const restrict B_overlap = emf->B_upper;
+	t_vfld *const restrict E_overlap = emf->E_below;
+	t_vfld *const restrict B_overlap = emf->B_below;
 
 	// y
-	for (i = -emf->gc[0][0]; i < emf->nx[0] + emf->gc[0][1]; i++)
+	#pragma acc parallel loop collapse(2) independent
+	for (int i = -emf->gc[0][0]; i < emf->nx[0] + emf->gc[0][1]; i++)
 	{
-		for (j = -emf->gc[1][0]; j < 0; j++)
+		for (int j = -emf->gc[1][0]; j < emf->gc[1][1]; j++)
 		{
-			B[i + j * nrow] = B_overlap[i + (j + emf->gc[1][0]) * nrow];
-			E[i + j * nrow] = E_overlap[i + (j + emf->gc[1][0]) * nrow];
-		}
-
-		for (j = 0; j < emf->gc[1][1]; j++)
-		{
-			B_overlap[i + (j + emf->gc[1][0]) * nrow] = B[i + j * nrow];
-			E_overlap[i + (j + emf->gc[1][0]) * nrow] = E[i + j * nrow];
+			if(j < 0)
+			{
+				B[i + j * nrow] = B_overlap[i + (j + emf->gc[1][0]) * nrow];
+				E[i + j * nrow] = E_overlap[i + (j + emf->gc[1][0]) * nrow];
+			}else
+			{
+				B_overlap[i + (j + emf->gc[1][0]) * nrow] = B[i + j * nrow];
+				E_overlap[i + (j + emf->gc[1][0]) * nrow] = E[i + j * nrow];
+			}
 		}
 	}
 }
 
 // Move the simulation window
-void emf_move_window(t_emf *emf)
+void emf_move_window_openacc(t_vfld *restrict E, t_vfld *restrict B, const int nrow,
+							 const int gc[2][2], const int nx[2], const int queue)
 {
+	const t_vfld zero_fld = {0, 0, 0};
 
-	if ((emf->iter * emf->dt) > emf->dx[0] * (emf->n_move + 1))
+	// Shift data left 1 cell and zero rightmost cells
+	#pragma acc parallel loop gang vector_length(384) async(queue)
+	for (int j = 0; j < gc[1][0] + nx[1] + gc[1][1]; j++)
 	{
-		int i, j;
-		const int nrow = emf->nrow;
+		t_vfld B_temp[LOCAL_BUFFER_SIZE];
+		t_vfld E_temp[LOCAL_BUFFER_SIZE];
 
-		t_vfld *const restrict E = emf->E;
-		t_vfld *const restrict B = emf->B;
+		#pragma acc cache(B_temp[0:LOCAL_BUFFER_SIZE])
+		#pragma acc cache(E_temp[0:LOCAL_BUFFER_SIZE])
 
-		const t_vfld zero_fld = {0., 0., 0.};
-
-		// Shift data left 1 cell and zero rightmost cells
-		for (j = 0; j < emf->nx[1]; j++)
+		for (int begin_idx = 0; begin_idx < nrow; begin_idx += LOCAL_BUFFER_SIZE)
 		{
-			for (i = -emf->gc[0][0]; i < emf->nx[0] - 1; i++)
+			#pragma acc loop vector
+			for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)
 			{
-				E[i + j * nrow] = E[i + j * nrow + 1];
-				B[i + j * nrow] = B[i + j * nrow + 1];
+				if ((begin_idx + i) < gc[0][0] + nx[0] - 1)
+				{
+					B_temp[i] = B[begin_idx + 1 + i + j * nrow];
+					E_temp[i] = E[begin_idx + 1 + i + j * nrow];
+				} else
+				{
+					B_temp[i] = zero_fld;
+					E_temp[i] = zero_fld;
+				}
 			}
 
-			for (i = emf->nx[0] - 1; i < emf->nx[0] + emf->gc[0][1]; i++)
+			#pragma acc loop vector
+			for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)
 			{
-				E[i + j * nrow] = zero_fld;
-				B[i + j * nrow] = zero_fld;
+				if (begin_idx + i < nrow)
+				{
+					E[begin_idx + i + j * nrow] = E_temp[i];
+					B[begin_idx + i + j * nrow] = B_temp[i];
+				}
 			}
 		}
-
-		// Increase moving window counter
-		emf->n_move++;
 	}
 }
 
-// Perform the local integration of the fields (and post processing). CPU Task
-void emf_advance(t_emf *emf, const t_current *current)
+// Perform the local integration of the fields (and post processing). OpenAcc Task
+void emf_advance_openacc(t_emf *emf, const t_current *current)
 {
-	const float dt = emf->dt;
+	const int queue = nanos6_get_current_acc_queue();
+
+	const t_fld dt = emf->dt;
+	const t_fld dt_dx = dt / emf->dx[0];
+	const t_fld dt_dy = dt / emf->dx[1];
+
+	emf->iter++;
+	const bool shift = (emf->iter * dt) > emf->dx[0] * (emf->n_move + 1);
 
 	// Advance EM field using Yee algorithm modified for having E and B time centered
-	yee_b(emf, dt / 2.0f);
-	yee_e(emf, current, dt);
-	yee_b(emf, dt / 2.0f);
+	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, queue);
+	yee_e_openacc(emf->B, emf->E, current->J, dt_dx, dt_dy, dt, emf->nrow, current->nrow, emf->nx, queue);
+	yee_b_openacc(emf->B, emf->E, dt_dx / 2.0f, dt_dy / 2.0f, emf->nrow, emf->nx, queue);
 
-	emf_update_gc_x(emf);
+	if(emf->moving_window)
+	{
+		if(shift)
+		{
+			emf->n_move++;
 
-	// Advance internal iteration number
-	emf->iter += 1;
-
-	// Move simulation window if needed
-	if (emf->moving_window) emf_move_window(emf);
-
-	// Update timing information
-	//#pragma oss atomic
-	//_emf_time += timer_interval_seconds(t0, timer_ticks());
+			// Move simulation window
+			emf_move_window_openacc(emf->E_buf, emf->B_buf, emf->nrow, emf->gc, emf->nx, queue);
+		}
+	} else
+	{
+		// Update guard cells with new values
+		emf_update_gc_x_openacc(emf->E, emf->B, emf->nrow, emf->nx, emf->gc, queue);
+	}
 }
 

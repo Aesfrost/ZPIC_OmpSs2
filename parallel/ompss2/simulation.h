@@ -37,7 +37,9 @@ typedef struct {
 	int nx[2];
 	t_fld box[2];
 	bool moving_window;
-	t_region *first_region; // Pointer to the first region (id = 0) in a double-linked list
+
+	unsigned int n_regions;
+	t_region *regions;
 
 	int iter;
 
@@ -60,11 +62,9 @@ int report(int n, int ndump);
 void sim_report(t_simulation *sim);
 void sim_report_energy(t_simulation *sim);
 void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1);
-//void sim_region_timings(t_simulation *sim);
 void sim_report_grid_zdf(t_simulation *sim, enum report_grid_type type, const int coord);
 void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_type, const int pha_nx[],
 		const float pha_range[][2]);
-void sim_report_csv(t_simulation *sim);
 
 
 #endif

@@ -83,23 +83,23 @@ void current_zero(t_current *current)
 
 }
 
-// Set the overlap zone between adjacent regions (only the upper zone)
-void current_overlap_zone(t_current *current, t_current *upper_current)
+// Set the overlap zone between adjacent regions (only the below zone)
+void current_overlap_zone(t_current *current, t_current *current_below)
 {
-	current->J_upper = upper_current->J
-			+ (upper_current->nx[1] - upper_current->gc[1][0]) * upper_current->nrow;
+	current->J_below = current_below->J
+			+ (current_below->nx[1] - current_below->gc[1][0]) * current_below->nrow;
 }
 
 /*********************************************************************************************
  Communication
  *********************************************************************************************/
 
-// Each region is only responsible to do the reduction operation in its top edge
+// Each region is only responsible to do the reduction operation in its bottom edge
 void current_reduction_y(t_current *current)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
-	t_vfld *restrict const J_overlap = current->J_upper;
+	t_vfld *restrict const J_overlap = current->J_below;
 
 	for (int j = -current->gc[1][0]; j < current->gc[1][1]; j++)
 	{
@@ -138,12 +138,12 @@ void current_reduction_x(t_current *current)
 	current->iter++;
 }
 
-// Update the ghost cells in the y direction (only the upper zone)
+// Update the ghost cells in the y direction (only the bottom edge)
 void current_gc_update_y(t_current *current)
 {
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J;
-	t_vfld *restrict const J_overlap = current->J_upper;
+	t_vfld *restrict const J_overlap = current->J_below;
 
 	for (int j = -current->gc[1][0]; j < 0; j++)
 	{
@@ -246,7 +246,7 @@ void kernel_y(t_current *const current, const t_fld sa, const t_fld sb)
 		for (i = 0; i < current->nx[0]; i++)
 		{
 
-			// Get lower, central and upper values
+			// Get lower, central and below values
 			t_vfld fl = flbuf[i];
 			t_vfld f0 = J[idx + i];
 			t_vfld fu = J[idx + i + nrow];
@@ -310,7 +310,7 @@ void current_smooth_y(t_current *current, enum smooth_type type)
  Diagnostics
  *********************************************************************************************/
 
-// Recreate a global buffer for a given direction
+// Reconstruct the simulation grid from all the regions (electric current for a given coordinate)
 void current_reconstruct_global_buffer(t_current *current, float *global_buffer, const int offset,
 		const int jc)
 {
@@ -355,7 +355,7 @@ void current_reconstruct_global_buffer(t_current *current, float *global_buffer,
 	}
 }
 
-// Save the reconstructed global buffer in the ZDF file format
+// Save the reconstructed simulation grid (electric current) in the ZDF file format
 void current_report(const float *restrict global_buffer, const int iter_num, const int true_nx[2],
 		const float box[2], const float dt, const char jc, const char path[128])
 {

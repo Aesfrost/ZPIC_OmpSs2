@@ -56,15 +56,16 @@ typedef struct {
 	// Moving window
 	bool moving_window;
 
-	// Pointer to the overlap zone (in the current buffer) in the region above
-	t_vfld *J_upper;
+	// Pointer to the overlap zone (in the current buffer) in the region below
+	// overlap zone = ghost cells (DOWN) + ghost cells (UP from below region)
+	t_vfld *J_below;
 
 } t_current;
 
 // Setup
 void current_new(t_current *current, int nx[], t_fld box[], float dt, const int device);
-void current_delete(t_current *current, const bool is_on_device);
-void current_overlap_zone(t_current *current, t_current *upper_current);
+void current_delete(t_current *current);
+void current_overlap_zone(t_current *current, t_current *upper_current, const int device);
 
 // ZDF report
 void current_reconstruct_global_buffer(t_current *current, float *global_buffer, const int offset,
@@ -72,51 +73,27 @@ void current_reconstruct_global_buffer(t_current *current, float *global_buffer,
 void current_report(const float *restrict global_buffer, const int iter_num, const int true_nx[2],
 		const float box[2], const float dt, const char jc, const char path[128]);
 
-// CPU Tasks
-#pragma oss task out(current->J_buf[0; current->total_size]) label("Current Reset")
-void current_zero(t_current *current);
-
-#pragma oss task inout(current->J_buf[0; current->overlap_size]) \
-inout(current->J_upper[-current->gc[0][0]; current->overlap_size]) \
-label("Current Reduction Y")
-void current_reduction_y(t_current *current); // Each region only update the zone in the top edge
-
-#pragma oss task inout(current->J_buf[0; current->total_size]) label("Current Reduction X")
-void current_reduction_x(t_current *current);
-
-#pragma oss task inout(current->J_buf[0; current->overlap_size]) \
-inout(current->J_upper[-current->gc[0][0]; current->overlap_size]) \
-label("Current Update GC")
-void current_gc_update_y(t_current *current);
-
-#pragma oss task inout(current->J_buf[0; current->total_size]) \
-label("Current Smooth X")
-void current_smooth_x(t_current *current);
-
-#pragma oss task inout(current->J_buf[0; current->total_size]) label("Current Smooth Y")
-void current_smooth_y(t_current *current, enum smooth_type type);
-
 // OpenAcc Tasks
-#pragma oss task out(current->J_buf[0; current->total_size]) \
-	label("Current Reset (GPU)") device(openacc)
+#pragma oss task label("Current Reset (GPU)") device(openacc) \
+	out(current->J_buf[0; current->total_size])
 void current_zero_openacc(t_current *current);
 
-#pragma oss task inout(current->J_buf[0; current->overlap_size]) \
-inout(current->J_upper[-current->gc[0][0]; current->overlap_size]) \
-label("Current Reduction Y (GPU)") device(openacc)
+#pragma oss task label("Current Reduction Y (GPU)") device(openacc) \
+	inout(current->J_buf[0; current->overlap_size]) \
+	inout(current->J_below[-current->gc[0][0]; current->overlap_size])
 void current_reduction_y_openacc(t_current *current);
 
-#pragma oss task inout(current->J_buf[0; current->total_size]) \
-label("Current Reduction X (GPU)") device(openacc)
+#pragma oss task label("Current Reduction X (GPU)") device(openacc) \
+	inout(current->J_buf[0; current->total_size])
 void current_reduction_x_openacc(t_current *current);
 
-#pragma oss task inout(current->J_buf[0; current->total_size]) \
-label("Current Smooth X (GPU)") device(openacc)
+#pragma oss task label("Current Smooth X (GPU)") device(openacc) \
+	inout(current->J_buf[0; current->total_size])
 void current_smooth_x_openacc(t_current *current);
 
-#pragma oss task inout(current->J_buf[0; current->overlap_size]) \
-inout(current->J_upper[-current->gc[0][0]; current->overlap_size]) \
-label("Current Update GC (GPU)") device(openacc)
+#pragma oss task label("Current Update GC (GPU)") device(openacc) \
+	inout(current->J_buf[0; current->overlap_size]) \
+	inout(current->J_below[-current->gc[0][0]; current->overlap_size])
 void current_gc_update_y_openacc(t_current *current);
 
 #endif

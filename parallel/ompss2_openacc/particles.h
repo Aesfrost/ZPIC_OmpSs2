@@ -19,23 +19,17 @@
 #include "emf.h"
 #include "current.h"
 
-#define LOCAL_BUFFER_SIZE 1024
 #define THREAD_BLOCK 320
-#define TILE_SIZE 16
 #define MAX_SPNAME_LEN 32
 #define EXTRA_NP 0.05 // Overallocation (fraction of the total)
-#define MAX_LEAVING_PART 0.3 // Maximum percentage of particles that can exchanged between tiles
-
-#define MAX_VALUE(x, y) x > y ? x : y
-#define MIN_VALUE(x, y) x < y ? x : y
-#define LTRIM(x) (x >= 1.0f) - (x < 0.0f)
+#define MAX_LEAVING_PART 1.0 // Maximum percentage of particles that can be exchanged between tiles
 
 enum density_type {
 	UNIFORM, STEP, SLAB
 };
 
 typedef struct {
-	float n;				// reference density (defaults to 1.0, multiplies density profile)
+	float n;				// Reference density (defaults to 1.0, multiplies density profile)
 	enum density_type type;		// Density profile type
 	float start, end;		// Position of the plasma start/end, in simulation units
 
@@ -57,17 +51,27 @@ typedef struct {
 typedef struct {
 	char name[MAX_SPNAME_LEN];
 
-	// Particle data buffer (CPU)
+	// Particle data buffer
 	t_particle_vector main_vector;
-	t_particle_vector incoming_part[3];    // Temporary buffer for incoming particles
 
-	// mass over charge ratio
+	// Temporary buffer for incoming particles
+	// 1 - From a lower region / 0 - From an upper region
+	t_particle_vector incoming_part[3];
+
+	// Outgoing particles
+	// 0 - Going down / 1 - Going up
+	t_particle_vector *outgoing_part[2];
+
+	// Mass over charge ratio
 	t_part_data m_q;
 
-	// total kinetic energy
+	// Total kinetic energy
 	double energy;
 
-	// charge of individual particle
+	// Number of particles pushed
+	double npush;
+
+	// Charge of individual particle
 	t_part_data q;
 
 	// Number of particles per cell
@@ -95,9 +99,6 @@ typedef struct {
 	bool moving_window;
 	int n_move;
 
-	// Outgoing particles
-	t_particle_vector *outgoing_part[2];
-
 	// Sort
 	int n_tiles_x;
 	int n_tiles_y;
@@ -113,12 +114,12 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 void spec_inject_particles(t_particle_vector *part_vector, const int range[][2], const int ppc[2],
 		const t_density *part_density, const t_part_data dx[2], const int n_move,
 		const t_part_data ufl[3], const t_part_data uth[3]);
-void spec_delete(t_species *spec, const bool is_on_device);
+void spec_delete(t_species *spec);
 void spec_organize_in_tiles(t_species *spec, const int limits_y[2], const int device);
 
 // Utilities
 void part_vector_alloc(t_particle_vector *vector, const int size_max, const int device);
-void part_vector_free(t_particle_vector *vector, const bool is_on_device);
+void part_vector_free(t_particle_vector *vector);
 void part_vector_realloc(t_particle_vector *vector, const int new_size, const int device);
 void part_vector_assign_valid_part(const t_particle_vector *source, const int source_idx,
 									t_particle_vector *target, const int target_idx);
@@ -129,34 +130,6 @@ void part_vector_mem_advise(t_particle_vector *vector, const int advise, const i
 // Report - General
 double spec_time(void);
 double spec_perf(void);
-
-// CPU Tasks
-#pragma oss task label("Spec Advance") \
-	in(emf->E_buf[0; emf->total_size]) \
-	in(emf->B_buf[0; emf->total_size]) \
-	inout(current->J_buf[0; current->total_size]) \
-	inout(spec->main_vector.ix[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.iy[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.x[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.y[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.ux[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.uy[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.uz[0; spec->main_vector.size_max]) \
-	inout(spec->main_vector.invalid[0; spec->main_vector.size_max]) \
-	out(*spec->outgoing_part[0]) out(*spec->outgoing_part[1])
-void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const int limits_y[2]);
-
-#pragma oss task label("Spec Update") \
-		inout(spec->main_vector.ix[0; spec->main_vector.size_max]) \
-		inout(spec->main_vector.iy[0; spec->main_vector.size_max]) \
-		inout(spec->main_vector.x[0; spec->main_vector.size_max]) \
-		inout(spec->main_vector.y[0; spec->main_vector.size_max]) \
-		inout(spec->main_vector.ux[0; spec->main_vector.size_max]) \
-		inout(spec->main_vector.uy[0; spec->main_vector.size_max]) \
-		inout(spec->main_vector.uz[0; spec->main_vector.size_max]) \
-		inout(spec->main_vector.invalid[0; spec->main_vector.size_max]) \
-		in(spec->incoming_part[0:1])
-void spec_update_main_vector(t_species *spec);
 
 // OpenAcc Tasks
 #pragma oss task label("Spec Kernel (GPU)") device(openacc) \
@@ -185,7 +158,7 @@ void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2]);
 		inout(spec->main_vector.ix[0; spec->main_vector.size_max])
 void spec_move_window_openacc(t_species *restrict spec, const int limits_y[2], const int device);
 
-#pragma oss task label("Spec Partial Sort (GPU)") \
+#pragma oss task label("Spec Sort (GPU)") \
 	inout(spec->main_vector.ix[0; spec->main_vector.size_max]) \
 	inout(spec->main_vector.iy[0; spec->main_vector.size_max]) \
 	inout(spec->main_vector.x[0; spec->main_vector.size_max]) \

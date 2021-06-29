@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include "../../simulation.h"
 
-void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_regions)
+void sim_init(t_simulation *sim, int n_regions)
 {
 	// Time step
 	float dt = 0.035;
@@ -31,10 +31,10 @@ void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_
 	t_part_data ufl[] = {0.0, 0.0, 0.0};
 	t_part_data uth[] = {0.0, 0.0, 0.0};
 
-	spec_new(&species[0], "electrons", -1.0, ppc, ufl, uth, nx, box, dt, NULL, nx[1], -1);
+	spec_new(&species[0], "electrons", -1.0, ppc, ufl, uth, nx, box, dt, NULL, nx[1]);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "cold-2000-1073M-4096-4096", n_regions, gpu_percentage, n_gpu_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "cold-2000-1073M-4096-4096", n_regions);
 
 	free(species);
 }

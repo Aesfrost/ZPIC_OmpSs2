@@ -21,6 +21,7 @@
 #define MIN_WARP_SIZE 32
 
 void realloc_buffer(void **restrict ptr, const size_t old_size, const size_t new_size, const size_t type_size);
+
 void prefix_sum_openacc(int *restrict vector, const int size);
 void prefix_sum_serial(int *restrict vector, const int size);
 

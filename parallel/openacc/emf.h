@@ -49,7 +49,7 @@ typedef struct {
 	int n_move;
 
 	// Pointer to the overlap zone (in the E/B buffer) in the region above
-	t_vfld *B_upper, *E_upper;
+	t_vfld *B_below, *E_below;
 
 } t_emf;
 

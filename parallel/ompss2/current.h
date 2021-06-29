@@ -56,8 +56,9 @@ typedef struct {
 	// Moving window
 	bool moving_window;
 
-	// Pointer to the overlap zone (in the current buffer) in the region above
-	t_vfld *J_upper;
+	// Pointer to the overlap zone (in the current buffer) in the region below
+	// overlap zone = ghost cells (DOWN) + ghost cells (UP from below region)
+	t_vfld *J_below;
 
 } t_current;
 
@@ -73,26 +74,26 @@ void current_report(const float *restrict global_buffer, const int iter_num, con
 		const float box[2], const float dt, const char jc, const char path[128]);
 
 // CPU Tasks
-#pragma oss task out(current->J_buf[0; current->total_size]) label(Current Reset)
+#pragma oss task out(current->J_buf[0; current->total_size]) label("Current Reset")
 void current_zero(t_current *current);
 
 #pragma oss task inout(current->J_buf[0; current->overlap_zone]) \
-inout(current->J_upper[-current->gc[0][0]; current->overlap_zone]) \
-label(Current Reduction Y)
+inout(current->J_below[-current->gc[0][0]; current->overlap_zone]) \
+label("Current Reduction Y")
 void current_reduction_y(t_current *current); // Each region only update the zone in the top edge
 
-#pragma oss task inout(current->J_buf[0; current->total_size]) label(Current Reduction X)
+#pragma oss task inout(current->J_buf[0; current->total_size]) label("Current Reduction X")
 void current_reduction_x(t_current *current);
 
 #pragma oss task inout(current->J_buf[0; current->overlap_zone]) \
-inout(current->J_upper[-current->gc[0][0]; current->overlap_zone]) \
-label(Current Update GC)
+inout(current->J_below[-current->gc[0][0]; current->overlap_zone]) \
+label("Current Update GC")
 void current_gc_update_y(t_current *current); // Each region only update the zone in the top edge
 
-#pragma oss task inout(current->J_buf[0; current->total_size]) label(Current Smooth X)
+#pragma oss task inout(current->J_buf[0; current->total_size]) label("Current Smooth X")
 void current_smooth_x(t_current *current);
 
-#pragma oss task inout(current->J_buf[0; current->total_size]) label(Current Smooth Y)
+#pragma oss task inout(current->J_buf[0; current->total_size]) label("Current Smooth Y")
 void current_smooth_y(t_current *current, enum smooth_type type);
 
 #endif

@@ -32,8 +32,6 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 	region->prev = prev_region;
 	region->next = next_region;
 
-	region->iter = 0;
-
 	region->limits_y[0] = floor((float) id * nx[1] / n_regions);
 	region->limits_y[1] = floor((float) (id + 1) * nx[1] / n_regions);
 
@@ -120,7 +118,8 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 #endif
 }
 
-// Link two adjacent regions and calculate the overlap zone between them
+// Link two adjacent regions and calculate the overlap zone between them.
+// Also organize the particles in tiles
 void region_init(t_region *region)
 {
 	const int num_gpus = acc_get_num_devices(DEVICE_TYPE);

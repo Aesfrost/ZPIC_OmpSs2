@@ -56,8 +56,9 @@ typedef struct {
 	// Moving window
 	bool moving_window;
 
-	// Pointer to the overlap zone (in the current buffer) in the region above
-	t_vfld *J_upper;
+	// Pointer to the overlap zone (in the current buffer) in the region below
+	// overlap zone = ghost cells (DOWN) + ghost cells (UP from below region)
+	t_vfld *J_below;
 
 } t_current;
 

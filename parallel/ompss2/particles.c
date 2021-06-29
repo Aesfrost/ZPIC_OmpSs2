@@ -23,35 +23,12 @@
 #include "zdf.h"
 #include "timer.h"
 
-static double _spec_time = 0.0;
-static double _spec_npush = 0.0;
-
-/**
- * Returns the total time spent pushing particles (includes boundaries and moving window)
- * @return  Total time in seconds
- */
-double spec_time(void)
-{
-	return _spec_time;
-}
-
-/**
- * Returns the performance achieved by the code (push time)
- * @return  Performance in seconds per particle
- */
-double spec_perf(void)
-{
-	return (_spec_npush > 0) ? _spec_time / _spec_npush : 0.0;
-}
-
 /*********************************************************************************************
  Vector Handling
  *********************************************************************************************/
 // Manual reallocation of buffers
 void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const size_t type_size)
 {
-	#pragma acc set device_num(0) // Dummy operation to work with the PGI Compiler
-
 	if(*ptr == NULL) *ptr = malloc(new_size * type_size);
 	else
 	{
@@ -70,10 +47,7 @@ void realloc_vector(void **restrict ptr, const int old_size, const int new_size,
 	}
 }
 
-/**
- * Add to the content of the temporary buffers into the particles vector
- * @param spec  Particle species
- */
+// Add the incoming particles to the main buffer
 void spec_merge_vectors(t_species *spec)
 {
 	int i = 0, j, k;
@@ -121,11 +95,7 @@ void spec_merge_vectors(t_species *spec)
 
 }
 
-/**
- * Add the particle to the temporary buffer
- * @param spec  Particle species
- * @param part  particle to be added
- */
+// Add particle to the outgoing buffer
 void spec_add_to_outgoing_vector(t_particle_vector *temp, t_part part)
 {
 	if (temp->size + 1 > temp->size_max)
@@ -208,6 +178,7 @@ void spec_set_x(t_particle_vector *vector, const int range[][2], const int ppc[2
 
 	ip = vector->size;
 
+	// Set the particles position and cell index
 	for (int j = range[1][0]; j < range[1][1]; j++)
 	{
 		for (int i = start; i < end; i++)
@@ -258,14 +229,12 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 		const t_part_data *ufl, const t_part_data *uth, const int nx[], t_part_data box[],
 		const float dt, t_density *density)
 {
-	int i, npc;
-
 	// Species name
 	strncpy(spec->name, name, MAX_SPNAME_LEN);
 
-	npc = 1;
+	int npc = 1;
 	// Store species data
-	for (i = 0; i < 2; i++)
+	for (int i = 0; i < 2; i++)
 	{
 		spec->nx[i] = nx[i];
 		spec->ppc[i] = ppc[i];
@@ -287,7 +256,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	spec->main_vector.size = 0;
 
 	// Initialize temp buffer
-	for (i = 0; i < 2; i++)
+	for (int i = 0; i < 2; i++)
 	{
 		spec->incoming_part[i].size_max = spec->nx[0] / 4;
 		spec->incoming_part[i].data = malloc(spec->incoming_part[i].size_max * sizeof(t_part));
@@ -308,11 +277,11 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	// Initialize temperature profile
 	if (ufl)
 	{
-		for (i = 0; i < 3; i++)
+		for (int i = 0; i < 3; i++)
 			spec->ufl[i] = ufl[i];
 	} else
 	{
-		for (i = 0; i < 3; i++)
+		for (int i = 0; i < 3; i++)
 			spec->ufl[i] = 0;
 	}
 
@@ -321,16 +290,18 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 
 	if (uth)
 	{
-		for (i = 0; i < 3; i++)
+		for (int i = 0; i < 3; i++)
 			spec->uth[i] = uth[i];
 	} else
 	{
-		for (i = 0; i < 3; i++)
+		for (int i = 0; i < 3; i++)
 			spec->uth[i] = 0;
 	}
 
 	// Reset iteration number
 	spec->iter = 0;
+
+	spec->npush = 0.0;
 
 	// Reset moving window information
 	spec->moving_window = false;
@@ -659,7 +630,7 @@ void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const i
 	const t_part_data qnx = spec->q * spec->dx[0] / spec->dt;
 	const t_part_data qny = spec->q * spec->dx[1] / spec->dt;
 
-	spec->energy = 0;
+	spec->npush += spec->main_vector.size;
 
 	// Advance internal iteration number
 	spec->iter += 1;
@@ -696,9 +667,9 @@ void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const i
 		utz = uz + Ep.z;
 
 		// Get time centered energy
-//		utsq = utx * utx + uty * uty + utz * utz;
-//		gamma = sqrtf(1.0f + utsq);
-//		spec->energy += utsq / (gamma + 1);
+		utsq = utx * utx + uty * uty + utz * utz;
+		gamma = sqrtf(1.0f + utsq);
+		spec->energy += utsq / (gamma + 1);
 
 		// Perform first half of the rotation
 		gtem = tem / sqrtf(1.0f + utx * utx + uty * uty + utz * utz);
@@ -789,12 +760,12 @@ void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const i
 		else if (spec->main_vector.data[i].iy >= nx1) spec->main_vector.data[i].iy -= nx1;
 
 		//Verify if the particle is still in the correct region. If not send the particle to the correct one
-		if (iy < limits_y[0])
+		if (iy < limits_y[0]) // Particles going to the region below
 		{
 			spec_add_to_outgoing_vector(spec->outgoing_part[0], spec->main_vector.data[i]);
 			spec->main_vector.data[i].invalid = true; // Mark the particle as invalid
 
-		} else if (iy >= limits_y[1])
+		} else if (iy >= limits_y[1]) // Particles going to the region above
 		{
 			spec_add_to_outgoing_vector(spec->outgoing_part[1], spec->main_vector.data[i]);
 			spec->main_vector.data[i].invalid = true; // Mark the particle as invalid
@@ -819,13 +790,11 @@ void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const i
 // Deposit the particle charge over the simulation grid
 void spec_deposit_charge(const t_species *spec, t_part_data *charge)
 {
-	int i;
-
 	// Charge array is expected to have 1 guard cell at the upper boundary
 	int nrow = spec->nx[0] + 1;
 	t_part_data q = spec->q;
 
-	for (i = 0; i < spec->main_vector.size; i++)
+	for (int i = 0; i < spec->main_vector.size; i++)
 	{
 		int idx = spec->main_vector.data[i].ix + nrow * spec->main_vector.data[i].iy;
 		t_fld w1, w2;

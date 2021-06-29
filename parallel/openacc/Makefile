@@ -1,6 +1,6 @@
 # GCC options
 CC = pgcc
-CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -mp -DTEST -DENABLE_ADVISE
+CFLAGS = -acc -ta=tesla:managed -Minfo=acc -O3 -fast -mp -DENABLE_ADVISE -DTEST
 
 INCLUDES = 
 LDFLAGS = -lm -lcuda

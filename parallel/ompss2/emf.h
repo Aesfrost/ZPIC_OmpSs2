@@ -49,7 +49,7 @@ typedef struct {
 	int n_move;
 
 	// Pointer to the overlap zone (in the E/B buffer) in the region above
-	t_vfld *B_upper, *E_upper;
+	t_vfld *B_below, *E_below;
 
 } t_emf;
 
@@ -93,24 +93,21 @@ void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const
 void emf_report(const float *restrict global_buffer, const float box[2], const int true_nx[2],
 		const int iter, const float dt, const char field, const char fc, const char path[128]);
 
-// CSV Report
-void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag,
-		t_fld *restrict B_mag, const int nrow, const int offset);
-
 // CPU Tasks
 #pragma oss task in(current->J_buf[0; current->total_size]) \
 inout(emf->E_buf[0; emf->total_size]) \
 inout(emf->B_buf[0; emf->total_size]) \
-label(EMF Advance)
+label("EMF Advance")
 void emf_advance(t_emf *emf, const t_current *current);
 
 #pragma oss task inout(emf->B_buf[0; emf->overlap]) \
-inout(emf->B_upper[-emf->gc[0][0]; emf->overlap]) \
+inout(emf->B_below[-emf->gc[0][0]; emf->overlap]) \
 inout(emf->E_buf[0; emf->overlap]) \
-inout(emf->E_upper[-emf->gc[0][0]; emf->overlap]) \
-label(EMF Update GC)
+inout(emf->E_below[-emf->gc[0][0]; emf->overlap]) \
+label("EMF Update GC")
 void emf_update_gc_y(t_emf *emf); // Each region is update the ghost cells in the top edge
 
+void emf_update_gc_y_serial(t_emf *emf);
 void emf_update_gc_x(t_emf *emf);
 
 #endif

@@ -2,11 +2,15 @@
 #CC = pgimcc
 #CFLAGS = --ompss-2 -O3
 
+# Intel Compiler
+#CC = imcc
+#CFLAGS = --ompss-2 -O3 -std=c99 -mtune=skylake --Wn,-xCORE-AVX512,-xHost
+
 # GCC options
 CC = mcc
-CFLAGS = --ompss-2 -O3 -std=c99
+CFLAGS = --ompss-2 -O3 -std=c99 -Wall -DTEST
 
-INCLUDES = -I/home/nicolas/ompss-2/include/
+INCLUDES =
 LDFLAGS = -lm
 
 SOURCE = current.c emf.c particles.c random.c timer.c main.c simulation.c zdf.c region.c 

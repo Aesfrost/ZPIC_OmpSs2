@@ -13,6 +13,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+#include <stddef.h>
 
 #include "particles.h"
 
@@ -29,7 +30,7 @@ typedef struct {
 } t_vp;
 
 /*********************************************************************************************
- Utilities
+ * Vector Utilities
  *********************************************************************************************/
 
 void part_vector_alloc(t_particle_vector *vector, const int size_max)
@@ -75,7 +76,7 @@ void part_vector_realloc(t_particle_vector *vector, const int new_size)
 }
 
 void part_vector_assign_part(const t_particle_vector *source, const int source_idx,
-									t_particle_vector *target, const int target_idx)
+                             t_particle_vector *target, const int target_idx)
 {
 	 target->ix[target_idx] = source->ix[source_idx];
 	 target->iy[target_idx] = source->iy[source_idx];
@@ -88,7 +89,7 @@ void part_vector_assign_part(const t_particle_vector *source, const int source_i
 }
 
 void part_vector_memcpy(const t_particle_vector *source, t_particle_vector *target, const int begin,
-						 const int size)
+						const int size)
 {
 	 memcpy(target->ix, source->ix + begin, size * sizeof(int));
 	 memcpy(target->iy, source->iy + begin, size * sizeof(int));
@@ -198,6 +199,7 @@ void spec_set_x(t_particle_vector *vector, const int range[][2], const int ppc[2
 
 	ip = vector->size;
 
+	// Set particle position and cell index
 	for (int j = range[1][0]; j < range[1][1]; j++)
 	{
 		for (int i = start; i < end; i++)
@@ -241,10 +243,10 @@ void spec_inject_particles(t_particle_vector *part_vector, const int range[][2],
 }
 
 
-// Apply the sorting to one of the particle vectors. If source_idx == NULL, apply the sorting in the whole array
-void spec_move_vector_int_full(int *restrict vector, int *restrict target_idx, const int move_size)
+// Apply the sorting to one of the particle vectors (full version)
+void spec_apply_full_sort(uint32_t *restrict vector, const int *restrict target_idx, const int move_size)
 {
-	int *restrict temp = malloc(move_size * sizeof(int));
+	uint32_t *restrict temp = malloc(move_size * sizeof(uint32_t));
 
 	#pragma omp parallel for
 	for (int i = 0; i < move_size; i++)
@@ -256,23 +258,6 @@ void spec_move_vector_int_full(int *restrict vector, int *restrict target_idx, c
 
 	free(temp);
 }
-
-// Apply the sorting to one of the particle vectors. If source_idx == NULL, apply the sorting in the whole array
-void spec_move_vector_float_full(t_part_data *restrict vector, int *restrict target_idx, const int move_size)
-{
-	t_part_data *restrict temp = malloc(move_size * sizeof(t_part_data));
-
-	#pragma omp parallel for
-	for (int i = 0; i < move_size; i++)
-		temp[i] = vector[i];
-
-	#pragma omp parallel for
-	for (int i = 0; i < move_size; i++)
-		if (target_idx[i] >= 0) vector[target_idx[i]] = temp[i];
-
-	free(temp);
-}
-
 
 // Organize the particles in tiles (Bucket Sort)
 void spec_organize_in_tiles(t_species *spec, const int limits_y[2])
@@ -312,14 +297,14 @@ void spec_organize_in_tiles(t_species *spec, const int limits_y[2])
 	const int final_size = tile_offset[n_tiles_x * n_tiles_y];
 	spec->main_vector.size = final_size;
 
-	// Move the particles to the correct position
-	spec_move_vector_int_full(spec->main_vector.ix, pos, size);
-	spec_move_vector_int_full(spec->main_vector.iy, pos, size);
-	spec_move_vector_float_full(spec->main_vector.x, pos, size);
-	spec_move_vector_float_full(spec->main_vector.y, pos, size);
-	spec_move_vector_float_full(spec->main_vector.ux, pos, size);
-	spec_move_vector_float_full(spec->main_vector.uy, pos, size);
-	spec_move_vector_float_full(spec->main_vector.uz, pos, size);
+	// Organize the particles in tiles based on the position vector
+	spec_apply_full_sort((uint32_t*) spec->main_vector.ix, pos, size);
+	spec_apply_full_sort((uint32_t*) spec->main_vector.iy, pos, size);
+	spec_apply_full_sort((uint32_t*) spec->main_vector.x, pos, size);
+	spec_apply_full_sort((uint32_t*) spec->main_vector.y, pos, size);
+	spec_apply_full_sort((uint32_t*) spec->main_vector.ux, pos, size);
+	spec_apply_full_sort((uint32_t*) spec->main_vector.uy, pos, size);
+	spec_apply_full_sort((uint32_t*) spec->main_vector.uz, pos, size);
 
 	// Validate all the particles
 	#pragma omp parallel for
@@ -407,7 +392,7 @@ void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc
 	spec->moving_window = false;
 	spec->n_move = 0;
 
-	// Sort
+	// Sort parameters
 	spec->n_tiles_x = ceil((float) spec->nx[0] / TILE_SIZE);
 	spec->n_tiles_y = ceil((float) region_size / TILE_SIZE);
 
@@ -784,6 +769,8 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 	const int nrow = emf->nrow;
 	const int region_offset = limits_y[0];
 
+	spec->npush += spec->main_vector.size;
+
 	// Advance particles
 	#pragma acc parallel loop gang collapse(2) vector_length(THREAD_BLOCK)
 	for(int tile_y = 0; tile_y < spec->n_tiles_y; tile_y++)
@@ -794,10 +781,12 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 			const int begin = spec->tile_offset[tile_idx];
 			const int end = spec->tile_offset[tile_idx + 1];
 
+			// Where the tile begin (lower left)
 			int2 begin_idx;
 			begin_idx.x = tile_x * TILE_SIZE;
 			begin_idx.y = tile_y * TILE_SIZE;
 
+			// Store local E, B and J (of a given tile) in the Shared Memory
 			t_vfld E[(TILE_SIZE + 2) * (TILE_SIZE + 2)];
 			t_vfld B[(TILE_SIZE + 2) * (TILE_SIZE + 2)];
 			t_vfld J[(TILE_SIZE + 3) * (TILE_SIZE + 3)];
@@ -1105,29 +1094,19 @@ void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2], const
  Sort
  *********************************************************************************************/
 
-void spec_move_vector_int(int *restrict vector, int *restrict source_idx, int *restrict target_idx,
-        int *restrict temp, const int move_size)
+// Exchange particles between tiles (one particle vector parameter at a time to reduce memory usage)
+void spec_apply_sort(uint32_t *restrict vector, const int *restrict source_idx,
+					 const int *restrict target_idx, uint32_t *restrict temp, const int sort_size)
 {
 	#pragma acc parallel loop deviceptr(temp, source_idx)
-	for (int i = 0; i < move_size; i++)
-		if (source_idx[i] >= 0) temp[i] = vector[source_idx[i]];
+	for (int i = 0; i < sort_size; i++)
+		if (source_idx[i] >= 0)
+			temp[i] = vector[source_idx[i]];
 
 	#pragma acc parallel loop deviceptr(temp, source_idx, target_idx)
-	for (int i = 0; i < move_size; i++)
-		if (source_idx[i] >= 0) vector[target_idx[i]] = temp[i];
-}
-
-// Apply the sorting to one of the particle vectors. If source_idx == NULL, apply the sorting in the whole array
-void spec_move_vector_float(t_part_data *restrict vector, int *restrict source_idx,
-        int *restrict target_idx, t_part_data *restrict temp, const int move_size)
-{
-	#pragma acc parallel loop deviceptr(temp, source_idx)
-	for (int i = 0; i < move_size; i++)
-		if (source_idx[i] >= 0) temp[i] = vector[source_idx[i]];
-
-	#pragma acc parallel loop deviceptr(temp, source_idx, target_idx)
-	for (int i = 0; i < move_size; i++)
-		if (source_idx[i] >= 0) vector[target_idx[i]] = temp[i];
+	for (int i = 0; i < sort_size; i++)
+		if (source_idx[i] >= 0)
+			vector[target_idx[i]] = temp[i];
 }
 
 // Calculate an histogram for the number of particles per tile
@@ -1170,6 +1149,7 @@ void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_of
 				int local_ix;
 				int local_iy = (iy - tile_y + 1);
 
+				// Periodic boundaries in X direction
 				if (tile_x == n_tiles_x - 1 && ix == 0) local_ix = 2;
 				else if (tile_x == 0 && ix == n_tiles_x - 1) local_ix = 0;
 				else local_ix = (ix - tile_x + 1);
@@ -1345,12 +1325,12 @@ void calculate_sorted_idx(t_particle_vector *part_vector, int *restrict tile_off
 
 				if (!is_invalid)
 				{
-					if (tile_x > 0 && target_tile == tile_idx - 1)
+					if (tile_x > 0 && target_tile == tile_idx - 1) // particles moving left
 					{
 						#pragma acc atomic capture
 						idx = left_counter--;
 					}
-					else if (tile_x < n_tiles_x - 1 && target_tile == tile_idx + 1)
+					else if (tile_x < n_tiles_x - 1 && target_tile == tile_idx + 1) // particles moving right
 					{
 						#pragma acc atomic capture
 						idx = right_counter++;
@@ -1366,7 +1346,7 @@ void calculate_sorted_idx(t_particle_vector *part_vector, int *restrict tile_off
 		}
 	}
 
-	// If the vector has shrink, add the valid particles outside the vector new size
+	// If the vector has shrink, add the valid particles outside the shrunk vector
 	if(size < old_size)
 	{
 		#pragma acc parallel loop deviceptr(source_idx, sort_counter)
@@ -1442,9 +1422,7 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 	int *restrict target_idx = acc_malloc(max_leaving_np * sizeof(int));
 	int *restrict sort_counter = acc_malloc(n_tiles * sizeof(int));
 	int *restrict mv_part_offset = malloc((n_tiles + 1) * sizeof(int));
-
-	int *restrict temp_int = acc_malloc(max_leaving_np * sizeof(int));
-	t_part_data *restrict temp_float = acc_malloc(max_leaving_np * sizeof(t_part_data));
+	uint32_t *restrict temp = acc_malloc(max_leaving_np * sizeof(uint32_t));
 
 	int np_inj = 0;
 	for(int i = 0; i < 3; i++)
@@ -1478,7 +1456,8 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 	const int sorting_size = mv_part_offset[n_tiles];
 	if(sorting_size >= max_leaving_np)
 	{
-		fprintf(stderr, "Out-of-bounds: Buffer size (%d) is too small (Minimum: %d). Increase MAX_LEAVING_PART to solve this issue.\n",
+		fprintf(stderr, "Out-of-bounds: Buffer size (%d) is too small (Minimum: %d). "
+				"Increase MAX_LEAVING_PART to solve this issue.\n",
 		        max_leaving_np, sorting_size);
 		exit(1);
 	}
@@ -1486,27 +1465,28 @@ void spec_sort_openacc(t_species *spec, const int limits_y[2], const int device)
 	calculate_sorted_idx(&spec->main_vector, spec->tile_offset,source_idx,target_idx, sort_counter, mv_part_offset,
 			 spec->n_tiles_y, n_tiles_x, size, offset_region, sorting_size);
 
-	spec_move_vector_int(spec->main_vector.ix, source_idx, target_idx, temp_int, sorting_size);
-	spec_move_vector_int(spec->main_vector.iy, source_idx, target_idx, temp_int, sorting_size);
-	spec_move_vector_float(spec->main_vector.x, source_idx, target_idx, temp_float, sorting_size);
-	spec_move_vector_float(spec->main_vector.y, source_idx, target_idx, temp_float, sorting_size);
-	spec_move_vector_float(spec->main_vector.ux, source_idx, target_idx, temp_float, sorting_size);
-	spec_move_vector_float(spec->main_vector.uy, source_idx, target_idx, temp_float, sorting_size);
-	spec_move_vector_float(spec->main_vector.uz, source_idx, target_idx, temp_float, sorting_size);
+	spec_apply_sort((uint32_t*) spec->main_vector.ix, source_idx, target_idx, temp, sorting_size);
+	spec_apply_sort((uint32_t*) spec->main_vector.iy, source_idx, target_idx, temp, sorting_size);
+	spec_apply_sort((uint32_t*) spec->main_vector.x, source_idx, target_idx, temp, sorting_size);
+	spec_apply_sort((uint32_t*) spec->main_vector.y, source_idx, target_idx, temp, sorting_size);
+	spec_apply_sort((uint32_t*) spec->main_vector.ux, source_idx, target_idx, temp, sorting_size);
+	spec_apply_sort((uint32_t*) spec->main_vector.uy, source_idx, target_idx, temp, sorting_size);
+	spec_apply_sort((uint32_t*) spec->main_vector.uz, source_idx, target_idx, temp, sorting_size);
 
 	#pragma acc parallel loop deviceptr(source_idx, target_idx)
 	for(int i = 0; i < sorting_size; i++)
-		if(source_idx[i] >= 0) spec->main_vector.invalid[target_idx[i]] = false;
+		if(source_idx[i] >= 0)
+			spec->main_vector.invalid[target_idx[i]] = false;
 
 	merge_particles_buffers(&spec->main_vector, spec->incoming_part, sort_counter, target_idx, n_tiles_x,
-			offset_region);
+							offset_region);
 
+	// Clean temporary vectors
 	acc_free(sort_counter);
 	free(mv_part_offset);
 	acc_free(target_idx);
 	acc_free(source_idx);
-	acc_free(temp_float);
-	acc_free(temp_int);
+	acc_free(temp);
 }
 
 /*********************************************************************************************

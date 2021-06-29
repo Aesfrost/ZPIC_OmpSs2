@@ -21,13 +21,11 @@ typedef struct Region
 {
 	int id;
 
-	int iter;
-
 	int nx[2]; // Region size
 	int limits_y[2]; // Limits of the region in y
 
-	struct Region *next; // Pointer to the bottom region (j => j_max)
-	struct Region *prev; // Pointer to the upper region (j < j_min)
+	struct Region *next; // Pointer to the region above (j => j_max)
+	struct Region *prev; // Pointer to the region below(j < j_min)
 
 	// Local species
 	int n_species;

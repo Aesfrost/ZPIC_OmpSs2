@@ -80,15 +80,15 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 	emf->n_move = 0;
 }
 
-// Set the overlap zone between regions (upper zone only)
-void emf_overlap_zone(t_emf *emf, t_emf *upper, const int device)
+// Set the overlap zone between regions (below zone only)
+void emf_overlap_zone(t_emf *emf, t_emf *below, const int device)
 {
-	emf->B_upper = upper->B + (upper->nx[1] - upper->gc[1][0]) * upper->nrow;
-	emf->E_upper = upper->E + (upper->nx[1] - upper->gc[1][0]) * upper->nrow;
+	emf->B_below = below->B + (below->nx[1] - below->gc[1][0]) * below->nrow;
+	emf->E_below = below->E + (below->nx[1] - below->gc[1][0]) * below->nrow;
 
 #ifdef ENABLE_ADVISE
-	cuMemAdvise(emf->B_upper - emf->gc[0][0], emf->overlap_size, CU_MEM_ADVISE_SET_ACCESSED_BY, device);
-	cuMemAdvise(emf->E_upper - emf->gc[0][0], emf->overlap_size, CU_MEM_ADVISE_SET_ACCESSED_BY, device);
+	cuMemAdvise(emf->B_below - emf->gc[0][0], emf->overlap_size, CU_MEM_ADVISE_SET_ACCESSED_BY, device);
+	cuMemAdvise(emf->E_below - emf->gc[0][0], emf->overlap_size, CU_MEM_ADVISE_SET_ACCESSED_BY, device);
 #endif
 }
 
@@ -313,7 +313,7 @@ void emf_update_gc_x(t_emf *emf)
 				B[i + j * nrow].z = B[emf->nx[0] + i + j * nrow].z;
 			}
 
-			// upper
+			// below
 			for (i = 0; i < emf->gc[0][1]; i++)
 			{
 				E[emf->nx[0] + i + j * nrow].x = E[i + j * nrow].x;
@@ -329,7 +329,7 @@ void emf_update_gc_x(t_emf *emf)
 	}
 }
 
-// Update ghost cells in the upper overlap zone (Y direction, CPU)
+// Update ghost cells in the below overlap zone (Y direction, CPU)
 void emf_update_gc_y(t_emf *emf)
 {
 	int i, j;
@@ -337,8 +337,8 @@ void emf_update_gc_y(t_emf *emf)
 
 	t_vfld *const restrict E = emf->E;
 	t_vfld *const restrict B = emf->B;
-	t_vfld *const restrict E_overlap = emf->E_upper;
-	t_vfld *const restrict B_overlap = emf->B_upper;
+	t_vfld *const restrict E_overlap = emf->E_below;
+	t_vfld *const restrict B_overlap = emf->B_below;
 
 	// y
 	for (i = -emf->gc[0][0]; i < emf->nx[0] + emf->gc[0][1]; i++)
@@ -360,7 +360,7 @@ void emf_update_gc_y(t_emf *emf)
 /*********************************************************************************************
  Diagnostics
  *********************************************************************************************/
-// Reconstruct the global buffer for the eletric/magnetic field in a given direction
+// Reconstruct the simulation grid from all regions (eletric/magnetic field for a given direction)
 void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const int offset,
 		const char field, const char fc)
 {
@@ -595,15 +595,15 @@ void emf_gc_x_openacc(t_emf *emf)
 	}
 }
 
-// Update ghost cells in the upper overlap zone (Y direction, OpenAcc)
+// Update ghost cells in the below overlap zone (Y direction, OpenAcc)
 void emf_update_gc_y_openacc(t_emf *emf, const int device)
 {
 	const int nrow = emf->nrow;
 
 	t_vfld *const restrict E = emf->E;
 	t_vfld *const restrict B = emf->B;
-	t_vfld *const restrict E_overlap = emf->E_upper;
-	t_vfld *const restrict B_overlap = emf->B_upper;
+	t_vfld *const restrict E_overlap = emf->E_below;
+	t_vfld *const restrict B_overlap = emf->B_below;
 
 #ifdef ENABLE_PREFETCH
 	grid_prefetch_openacc(E_overlap, emf->overlap_size, device, NULL);

@@ -20,7 +20,6 @@
 #include "current.h"
 
 #define MAX_SPNAME_LEN 32
-
 #define LTRIM(x) (x >= 1.0f) - (x < 0.0f)
 
 typedef struct {
@@ -56,15 +55,19 @@ typedef struct {
 
 	// Particle data buffer
 	t_particle_vector main_vector;
-	t_particle_vector incoming_part[2];    // Temporary buffer for incoming particles
+	t_particle_vector incoming_part[2];    	// Temporary buffer for incoming particles
+	t_particle_vector *outgoing_part[2]; 	// Outgoing particles (0 - Below / 1 - Above)
 
-	// mass over charge ratio
+	// Mass over charge ratio
 	t_part_data m_q;
 
-	// total kinetic energy
+	// Total kinetic energy
 	double energy;
 
-	// charge of individual particle
+	// Number of particles pushed
+	double npush;
+
+	// Charge of individual particle
 	t_part_data q;
 
 	// Number of particles per cell
@@ -92,8 +95,6 @@ typedef struct {
 	bool moving_window;
 	int n_move;
 
-	// Outgoing particles
-	t_particle_vector *outgoing_part[2];
 
 } t_species;
 
@@ -120,7 +121,7 @@ void realloc_vector(void **restrict ptr, const int old_size, const int new_size,
 	out(*spec->outgoing_part[0]) out(*spec->outgoing_part[1]) priority(5)
 void spec_advance(t_species *spec, const t_emf *emf, t_current *current, const int limits_y[2]);
 
-#pragma oss task in(spec->incoming_part[0:1]) inout(spec->main_vector) label(Spec Update)
+#pragma oss task in(spec->incoming_part[0:1]) inout(spec->main_vector) label("Spec Merge Vectors")
 void spec_merge_vectors(t_species *spec);
 
 /*********************************************************************************************

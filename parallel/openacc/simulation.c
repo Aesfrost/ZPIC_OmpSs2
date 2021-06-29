@@ -182,9 +182,6 @@ void sim_iter(t_simulation *sim)
 		const int device = i % num_gpus;
 		acc_set_device_num(device, DEVICE_TYPE);
 
-		// Advance iteration count
-		regions[i].iter++;
-
 		current_zero_openacc(&regions[i].local_current, device);
 
 		for (int k = 0; k < regions[i].n_species; k++)
@@ -323,25 +320,17 @@ void sim_report_energy(t_simulation *sim)
 
 void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int n_iterations)
 {
-	int npart = 0;
-	int n_regions = 0;
+	double npart = 0;
+	float sim_time = timer_interval_seconds(t0, t1);
 
-	t_region *restrict region = &sim->regions[0];
-	do
-	{
-		for (int i = 0; i < sim->regions[0].n_species; i++)
-			npart += region->species[i].main_vector.size;
-
-		region = region->next;
-		n_regions++;
-	} while (region->id != 0);
+	for(int j = 0; j < sim->n_regions; j++)
+		for (int i = 0; i < sim->regions[j].n_species; i++)
+			npart += sim->regions[j].species[i].npush;
 
 #ifndef TEST
 	fprintf(stdout, "Simulation: %s\n", sim->name);
 	fprintf(stdout, "Number of regions (Total): %d\n", sim->n_regions);
 	fprintf(stdout, "Number of GPUs: %d\n", acc_get_num_devices(DEVICE_TYPE));
-	fprintf(stdout, "Sort - Bin size: %d\n", TILE_SIZE);
-
 #ifdef ENABLE_PREFETCH
 	fprintf(stdout, "Prefetch: Enable\n");
 #else
@@ -349,14 +338,14 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 #endif
 
 	fprintf(stdout, "Total simulation time  = %f s\n", timer_interval_seconds(t0, t1));
-	fprintf(stdout, "Time per iteration = %f ms\n", timer_interval_seconds(t0, t1) / n_iterations * 1E3);
+	fprintf(stdout, "Performance: %f Mpart/s", npart / sim_time / 1E6);
 	fprintf(stdout, "\n");
 
 #else
 #ifdef ENABLE_PREFETCH
-	printf("%s,%d,%d,%d,1,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), TILE_SIZE, timer_interval_seconds(t0, t1));
+	printf("%s,%d,%d,%d,1,%f,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), sim_time, npart / sim_time / 1E6);
 #else
-	printf("%s,%d,%d,%d,0,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), TILE_SIZE, timer_interval_seconds(t0, t1));
+	printf("%s,%d,%d,%d,0,%f,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), sim_time, npart / sim_time / 1E6);
 #endif
 #endif
 }
@@ -364,7 +353,9 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 // Save the grid quantity to a ZDF file
 void sim_report_grid_zdf(t_simulation *sim, enum report_grid_type type, const int coord)
 {
-	t_region *restrict region = &sim->regions[0];
+	t_region *regions = sim->regions;
+	const int n_regions = sim->n_regions;
+
 	t_fld *restrict global_buf = calloc(sim->nx[0] * sim->nx[1], sizeof(t_fld));
 	char path[128] = "";
 	sprintf(path, "output/%s/grid", sim->name);
@@ -372,34 +363,25 @@ void sim_report_grid_zdf(t_simulation *sim, enum report_grid_type type, const in
 	switch (type)
 	{
 		case REPORT_BFLD:
-			do
-			{
-				emf_reconstruct_global_buffer(&region->local_emf, global_buf, region->limits_y[0],
-						BFLD, coord);
-				region = region->next;
-			} while (region->id != 0);
+			for(int i = 0; i < n_regions; i++)
+				emf_reconstruct_global_buffer(&regions[i].local_emf, global_buf, regions[i].limits_y[0],
+											  BFLD, coord);
 
 			emf_report(global_buf, sim->box, sim->nx, sim->iter, sim->dt, BFLD, coord, path);
 			break;
 
 		case REPORT_EFLD:
-			do
-			{
-				emf_reconstruct_global_buffer(&region->local_emf, global_buf, region->limits_y[0],
-						EFLD, coord);
-				region = region->next;
-			} while (region->id != 0);
+			for(int i = 0; i < n_regions; i++)
+				emf_reconstruct_global_buffer(&regions[i].local_emf, global_buf, regions[i].limits_y[0],
+											  EFLD, coord);
 
 			emf_report(global_buf, sim->box, sim->nx, sim->iter, sim->dt, EFLD, coord, path);
 			break;
 
 		case REPORT_CURRENT:
-			do
-			{
-				current_reconstruct_global_buffer(&region->local_current, global_buf,
-						region->limits_y[0], coord);
-				region = region->next;
-			} while (region->id != 0);
+			for(int i = 0; i < n_regions; i++)
+				current_reconstruct_global_buffer(&regions[i].local_current, global_buf,
+												  regions[i].limits_y[0], coord);
 
 			current_report(global_buf, sim->iter, sim->nx, sim->box, sim->dt, coord, path);
 			break;
@@ -415,10 +397,12 @@ void sim_report_grid_zdf(t_simulation *sim, enum report_grid_type type, const in
 void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_type,
 		const int pha_nx[2], const float pha_range[][2])
 {
+	t_region *regions = sim->regions;
+	const int n_regions = sim->n_regions;
+
 	size_t size;
-	t_region *restrict region = &sim->regions[0];
 	char path[128] = "";
-	sprintf(path, "output/%s/%s", sim->name, sim->regions[0].species[species].name);
+	sprintf(path, "output/%s/%s", sim->name, regions[0].species[species].name);
 
 	switch (rep_type & 0xF000)
 	{
@@ -428,13 +412,8 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 			t_part_data *restrict charge = malloc(size);
 			memset(charge, 0, size);
 
-			region = &sim->regions[0];
-			do
-			{
-				spec_deposit_charge(&region->species[species], charge);
-				region = region->next;
-			} while (region->id != 0);
-
+			for(int i = 0; i < n_regions; i++)
+				spec_deposit_charge(&regions[i].species[species], charge);
 			spec_rep_charge(charge, sim->nx, sim->box, sim->iter, sim->dt, sim->moving_window,
 							path);
 
@@ -447,13 +426,8 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 			float *buf = malloc(pha_nx[0] * pha_nx[1] * sizeof(float));
 			memset(buf, 0, pha_nx[0] * pha_nx[1] * sizeof(float));
 
-			region = &sim->regions[0];
-			do
-			{
-				spec_deposit_pha(&region->species[species], rep_type, pha_nx, pha_range, buf);
-				region = region->next;
-			} while (region->id != 0);
-
+			for(int i = 0; i < n_regions; i++)
+				spec_deposit_pha(&regions[i].species[species], rep_type, pha_nx, pha_range, buf);
 			spec_rep_pha(buf, rep_type, pha_nx, pha_range, sim->iter, sim->dt, path);
 
 			free(buf);
@@ -463,6 +437,9 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 
 		case PARTICLES:
 		{
+			t_species *restrict spec;
+			int offset;
+
 			const char *quants[] = {"x1", "x2", "u1", "u2", "u3"};
 			const char *units[] = {"c/\\omega_p", "c/\\omega_p", "c", "c", "c"};
 
@@ -471,12 +448,8 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 
 			// Allocate buffer for positions
 			int np = 0;
-			region = &sim->regions[0];
-			do
-			{
-				np += region->species[species].main_vector.size;
-				region = region->next;
-			} while (region->id != 0);
+			for(int i = 0; i < n_regions; i++)
+				np += regions[i].species[species].main_vector.size;
 
 			size = np * sizeof(float);
 			float *data = malloc(size);
@@ -489,84 +462,62 @@ void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_typ
 			zdf_part_file_open(&part_file, &info, &iter, path);
 
 			// Add positions and generalized velocities
-			t_species *restrict spec;
-			int offset;
-
 			// x1
-			region = &sim->regions[0];
 			offset = 0;
-			do
+			for(int n = 0; n < n_regions; n++)
 			{
-				spec = &region->species[species];
+				spec = &regions[n].species[species];
 
 				for (int i = 0; i < spec->main_vector.size; i++)
 					data[i + offset] = (spec->n_move + spec->main_vector.ix[i]
 							+ spec->main_vector.x[i]) * spec->dx[0];
-
-				region = region->next;
 				offset += spec->main_vector.size;
-			} while (region->id != 0);
+			}
 			zdf_part_file_add_quant(&part_file, quants[0], data, np);
 
 			// x2
-			region = &sim->regions[0];
 			offset = 0;
-			do
+			for(int n = 0; n < n_regions; n++)
 			{
-				spec = &region->species[species];
-
+				spec = &regions[n].species[species];
 				for (int i = 0; i < spec->main_vector.size; i++)
 					data[i + offset] = (spec->n_move + spec->main_vector.iy[i]
 							+ spec->main_vector.y[i]) * spec->dx[1];
-
-				region = region->next;
 				offset += spec->main_vector.size;
-			} while (region->id != 0);
+			}
 			zdf_part_file_add_quant(&part_file, quants[1], data, np);
 
 			// ux
-			region = &sim->regions[0];
 			offset = 0;
-			do
+			for(int n = 0; n < n_regions; n++)
 			{
-				spec = &region->species[species];
-
+				spec = &regions[n].species[species];
 				for (int i = 0; i < spec->main_vector.size; i++)
 					data[i + offset] = spec->main_vector.ux[i];
-
-				region = region->next;
 				offset += spec->main_vector.size;
-			} while (region->id != 0);
+			}
 			zdf_part_file_add_quant(&part_file, quants[2], data, np);
 
 			// uy
-			region = &sim->regions[0];
 			offset = 0;
-			do
+			for(int n = 0; n < n_regions; n++)
 			{
-				spec = &region->species[species];
-
+				spec = &regions[n].species[species];
 				for (int i = 0; i < spec->main_vector.size; i++)
 					data[i + offset] = spec->main_vector.uy[i];
-
-				region = region->next;
 				offset += spec->main_vector.size;
-			} while (region->id != 0);
+			}
 			zdf_part_file_add_quant(&part_file, quants[3], data, np);
 
 			// uz
-			region = &sim->regions[0];
 			offset = 0;
-			do
+			for(int n = 0; n < n_regions; n++)
 			{
-				spec = &region->species[species];
-
+				spec = &regions[n].species[species];
 				for (int i = 0; i < spec->main_vector.size; i++)
 					data[i + offset] = spec->main_vector.uz[i];
-
-				region = region->next;
 				offset += spec->main_vector.size;
-			} while (region->id != 0);
+			}
 			zdf_part_file_add_quant(&part_file, quants[4], data, np);
 
 			free(data);

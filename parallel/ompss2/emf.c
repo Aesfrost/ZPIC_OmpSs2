@@ -19,13 +19,6 @@
 #include "zdf.h"
 #include "timer.h"
 
-static double _emf_time = 0.0;
-
-double emf_time(void)
-{
-	return _emf_time;
-}
-
 /*********************************************************************************************
  Constructor / Destructor
  *********************************************************************************************/
@@ -86,11 +79,11 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt)
 	emf->n_move = 0;
 }
 
-// Set the overlap zone between regions (upper zone only)
-void emf_overlap_zone(t_emf *emf, t_emf *upper)
+// Set the overlap zone between regions (below zone only)
+void emf_overlap_zone(t_emf *emf, t_emf *below)
 {
-	emf->B_upper = upper->B + (upper->nx[1] - upper->gc[1][0]) * upper->nrow;
-	emf->E_upper = upper->E + (upper->nx[1] - upper->gc[1][0]) * upper->nrow;
+	emf->B_below = below->B + (below->nx[1] - below->gc[1][0]) * below->nrow;
+	emf->E_below = below->E + (below->nx[1] - below->gc[1][0]) * below->nrow;
 }
 
 void emf_delete(t_emf *emf)
@@ -289,11 +282,11 @@ void emf_add_laser(t_emf *const emf, t_emf_laser *laser, int offset_y)
  Diagnostics
  *********************************************************************************************/
 
-// Reconstruct the global buffer for the eletric/magnetic field in a given direction
+// Reconstruct the simulation grid from all regions (eletric/magnetic field for a given direction)
 void emf_reconstruct_global_buffer(const t_emf *emf, float *global_buffer, const int offset,
 		const char field, const char fc)
 {
-	t_vfld *restrict f;
+	t_vfld *restrict f = NULL;
 
 	switch (field)
 	{
@@ -425,30 +418,6 @@ double emf_get_energy(t_emf *emf)
 	return result * 0.5 * emf->dx[0] * emf->dx[1];
 }
 
-// Calculate the magnitude of the EMF for a given region
-void emf_report_magnitude(const t_emf *emf, t_fld *restrict E_mag, t_fld *restrict B_mag,
-		const int nrow, const int offset)
-{
-	const unsigned int nrows = emf->nrow;
-	t_vfld *const restrict E = emf->E;
-	t_vfld *const restrict B = emf->B;
-
-	for (unsigned int j = 0; j < emf->nx[1]; j++)
-	{
-		for (unsigned int i = 0; i < emf->nx[0]; i++)
-		{
-			E_mag[i + (j + offset) * nrow] = sqrt(E[i + j * nrows].x * E[i + j * nrows].x
-							+ E[i + j * nrows].y * E[i + j * nrows].y
-							+ E[i + j * nrows].z * E[i + j * nrows].z);
-
-			B_mag[i + (j + offset) * nrow] = sqrt(B[i + j * nrows].x * B[i + j * nrows].x
-							+ B[i + j * nrows].y * B[i + j * nrows].y
-							+ B[i + j * nrows].z * B[i + j * nrows].z);
-		}
-	}
-
-}
-
 /*********************************************************************************************
  Field solver
  *********************************************************************************************/
@@ -542,7 +511,7 @@ void emf_update_gc_x(t_emf *emf)
 				B[i + j * nrow].z = B[emf->nx[0] + i + j * nrow].z;
 			}
 
-			// upper
+			// below
 			for (i = 0; i < emf->gc[0][1]; i++)
 			{
 				E[emf->nx[0] + i + j * nrow].x = E[i + j * nrow].x;
@@ -558,17 +527,17 @@ void emf_update_gc_x(t_emf *emf)
 	}
 }
 
-// Update ghost cells in the upper overlap zone (Y direction)
+// Update ghost cells in the below overlap zone (Y direction)
 void emf_update_gc_y(t_emf *emf)
 {
-	uint64_t t0 = timer_ticks();
+//	uint64_t t0 = timer_ticks();
 	int i, j;
 	const int nrow = emf->nrow;
 
 	t_vfld *const restrict E = emf->E;
 	t_vfld *const restrict B = emf->B;
-	t_vfld *const restrict E_overlap = emf->E_upper;
-	t_vfld *const restrict B_overlap = emf->B_upper;
+	t_vfld *const restrict E_overlap = emf->E_below;
+	t_vfld *const restrict B_overlap = emf->B_below;
 
 	// y
 	for (i = -emf->gc[0][0]; i < emf->nx[0] + emf->gc[0][1]; i++)
@@ -591,10 +560,37 @@ void emf_update_gc_y(t_emf *emf)
 	//_emf_time += timer_interval_seconds(t0, timer_ticks());
 }
 
+void emf_update_gc_y_serial(t_emf *emf)
+{
+//	uint64_t t0 = timer_ticks();
+	int i, j;
+	const int nrow = emf->nrow;
+
+	t_vfld *const restrict E = emf->E;
+	t_vfld *const restrict B = emf->B;
+	t_vfld *const restrict E_overlap = emf->E_below;
+	t_vfld *const restrict B_overlap = emf->B_below;
+
+	// y
+	for (i = -emf->gc[0][0]; i < emf->nx[0] + emf->gc[0][1]; i++)
+	{
+		for (j = -emf->gc[1][0]; j < 0; j++)
+		{
+			B[i + j * nrow] = B_overlap[i + (j + emf->gc[1][0]) * nrow];
+			E[i + j * nrow] = E_overlap[i + (j + emf->gc[1][0]) * nrow];
+		}
+
+		for (j = 0; j < emf->gc[1][1]; j++)
+		{
+			B_overlap[i + (j + emf->gc[1][0]) * nrow] = B[i + j * nrow];
+			E_overlap[i + (j + emf->gc[1][0]) * nrow] = E[i + j * nrow];
+		}
+	}
+}
+
 // Move the simulation window
 void emf_move_window(t_emf *emf)
 {
-
 	if ((emf->iter * emf->dt) > emf->dx[0] * (emf->n_move + 1))
 	{
 		int i, j;
@@ -629,7 +625,6 @@ void emf_move_window(t_emf *emf)
 // Perform the local integration of the fields (and post processing)
 void emf_advance(t_emf *emf, const t_current *current)
 {
-	uint64_t t0 = timer_ticks();
 	const float dt = emf->dt;
 
 	// Advance EM field using Yee algorithm modified for having E and B time centered
@@ -644,9 +639,5 @@ void emf_advance(t_emf *emf, const t_current *current)
 
 	// Move simulation window if needed
 	if (emf->moving_window) emf_move_window(emf);
-
-	// Update timing information (cannot be used with PGI Compiler)
-	//#pragma oss atomic
-	//_emf_time += timer_interval_seconds(t0, timer_ticks());
 }
 

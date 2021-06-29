@@ -47,7 +47,6 @@ void sim_init(t_simulation *sim, int n_regions)
 
 	// Set current smoothing (this must come after sim_new)
 	t_smooth smooth = {.xtype = COMPENSATED, .xlevel = 4};
-
 	sim_set_smooth(sim, &smooth);
 
 	free(species);

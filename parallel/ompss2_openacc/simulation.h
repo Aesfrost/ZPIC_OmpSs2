@@ -39,7 +39,9 @@ typedef struct {
 	int nx[2];
 	t_fld box[2];
 	bool moving_window;
-	t_region *first_region; // Pointer to the first region (id = 0)
+
+	int n_regions;
+	t_region *regions;
 
 	int iter;
 
@@ -47,8 +49,8 @@ typedef struct {
 
 // Setup
 void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int ndump,
-		t_species *species, int n_species, char name[64], int n_regions, float gpu_percentage, int n_gpu_regions);
-void sim_init(t_simulation *sim, int n_regions, float gpu_percentage, int n_gpu_regions);
+		t_species *species, int n_species, char name[64], int n_regions);
+void sim_init(t_simulation *sim, int n_regions);
 void sim_set_moving_window(t_simulation *sim);
 void sim_set_smooth(t_simulation *sim, t_smooth *smooth);
 void sim_add_laser(t_simulation *sim, t_emf_laser *laser);
@@ -63,9 +65,7 @@ void sim_report(t_simulation *sim);
 void sim_report_grid_zdf(t_simulation *sim, enum report_grid_type type, const int coord);
 void sim_report_spec_zdf(t_simulation *sim, const int species, const int rep_type, const int pha_nx[],
 		const float pha_range[][2]);
-void sim_report_csv(t_simulation *sim);
 void sim_report_energy(t_simulation *sim);
 void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int n_iterations);
-//void sim_region_timings(t_simulation *sim);
 
 #endif

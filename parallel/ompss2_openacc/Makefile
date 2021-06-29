@@ -1,6 +1,6 @@
 # GCC options
 CC = pgimcc
-CFLAGS = --ompss-2 -O3 --openacc --cuda
+CFLAGS = --ompss-2 -O3 --openacc -DTEST --cuda -DENABLE_ADVISE -DTEST
 
 #CC = pgcc
 #CFLAGS = -acc -ta=tesla:managed:cuda10.1 -Minfo=acc -O3 -fast -Mcuda=ptxinfo -g
@@ -8,7 +8,6 @@ CFLAGS = --ompss-2 -O3 --openacc --cuda
 INCLUDES = 
 LDFLAGS = -lm -lcuda
 
-KERNELS = kernel_particles.c kernel_emf.c kernel_current.c
 SOURCE = current.c emf.c particles.c random.c timer.c main.c simulation.c zdf.c utilities.c region.c 
 TARGET = zpic
 
@@ -17,11 +16,11 @@ all: $(TARGET)
 affinity: CFLAGS += -DENABLE_AFFINITY=1 --cuda
 affinity: all
 
-valgrind: $(SOURCE) $(KERNELS)
+valgrind: $(SOURCE)
 	gcc $^ $(INCLUDES) -o $(TARGET) -O3 -std=c99 -g $(LDFLAGS) -Wall
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=log.txt ./$(TARGET) 4 0.5 2
 
-$(TARGET) : $(SOURCE:.c=.o) $(KERNELS:.c=.o)
+$(TARGET) : $(SOURCE:.c=.o)
 	$(CC) $^ -o $@ $(CFLAGS) $(INCLUDES) $(LDFLAGS)
 
 %.o : %.c

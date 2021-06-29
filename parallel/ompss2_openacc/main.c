@@ -29,38 +29,22 @@
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
 //#include "input/weibel-2000-151M-2048-2048.c"
-// #include "input/lwfa-8000-131M-4000-2048.c"
+ #include "input/lwfa-4000-16M-2000-512.c"
 //#include "input/warm-2000-538M-2900-2900.c"
 //#include "input/weibel-500-67M-512-512.c"
-
-//#include "input/weak/weibel-2000-151M-2048-2048.c"
-//#include "input/weak/weibel-2000-303M-2900-2900.c"
-//#include "input/weak/weibel-2000-467M-3600-3600.c"
-//#include "input/weak/weibel-2000-604M-4096-4096.c"
-
-//#include "input/weak/warm-2000-268M-2048-2048.c"
-//#include "input/weak/warm-2000-538M-2900-2900.c"
-//#include "input/weak/warm-2000-829M-3600-3600.c"
-#include "input/weak/warm-2000-1073M-4096-4096.c"
-
-//#include "input/weak/cold-2000-268M-2048-2048.c"
-//#include "input/weak/cold-2000-538M-2900-2900.c"
-//#include "input/weak/cold-2000-829M-3600-3600.c"
-//#include "input/weak/cold-2000-1073M-4096-4096.c"
 
 #pragma oss assert("version.dependencies==regions")
 int main(int argc, const char *argv[])
 {
-	if(argc != 4)
+	if(argc != 2)
 	{
-		fprintf(stderr, "Wrong arguments. Expected: <number of regions> <percentage of regions using GPU> "
-				"<number of GPU regions>");
+		fprintf(stderr, "Wrong arguments. Expected: <number of regions>");
 		exit(1);
 	}
 
 	// Initialize simulation
 	t_simulation sim;
-	sim_init(&sim, atoi(argv[1]), atof(argv[2]), atoi(argv[3]));
+	sim_init(&sim, atoi(argv[1]));
 
 	// Run simulation
 	int n;
@@ -75,15 +59,15 @@ int main(int argc, const char *argv[])
 
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-//		if(n == 1) break;
-//		fprintf(stderr, "n = %i, t = %f\n", n, t);
+#ifndef TEST
+		fprintf(stderr, "n = %i, t = %f\n", n, t);
 
-// 		if (report(n, sim.ndump))
-// 		{
-// 			#pragma oss taskwait
-// 			sim_report(&sim);
-// 		}
-
+		if (report(n, sim.ndump))
+		{
+			#pragma oss taskwait
+			sim_report(&sim);
+		}
+#endif		
 		sim_iter(&sim);
 	}
 

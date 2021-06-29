@@ -31,6 +31,8 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
+// #include "input/lwfa-4000-16M-2000-512.c"
+//#include "input/lwfa-2000-4M-2000-256.c"
 #include "input/weibel-500-4M-512-512.c"
 
 int main(int argc, const char *argv[])
@@ -48,31 +50,35 @@ int main(int argc, const char *argv[])
 	// Run simulation
 	int n;
 	float t;
-
-	fprintf(stderr, "Starting simulation ...\n\n");
-
 	uint64_t t0, t1;
+	
+#ifndef TEST
+	fprintf(stderr, "Starting simulation ...\n\n");
+#endif
+	
 	t0 = timer_ticks();
 
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-//		if(n == 4) break;
+#ifndef TEST
+		fprintf(stderr, "n = %i, t = %f\n", n, t);
 
-//		fprintf(stderr, "n = %i, t = %f\n", n, t);
-//
-//		if (report(n, sim.ndump))
-//		{
-//			#pragma oss taskwait
-//			sim_report(&sim);
-//		}
-
+		if (report(n, sim.ndump))
+		{
+			#pragma oss taskwait
+			sim_report(&sim);
+		}
+#endif
 		sim_iter(&sim);
 	}
 
 	#pragma oss taskwait
 
 	t1 = timer_ticks();
+
+#ifndef TEST
 	fprintf(stderr, "\nSimulation ended.\n\n");
+#endif
 
 	// Simulation times
 	sim_timings(&sim, t0, t1);

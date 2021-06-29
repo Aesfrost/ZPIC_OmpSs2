@@ -22,7 +22,7 @@
 #define THREAD_BLOCK 320
 #define MAX_SPNAME_LEN 32
 #define EXTRA_NP 0.05 // Overallocation (fraction of the total)
-#define MAX_LEAVING_PART 0.3 // Maximum percentage of particles that can exchanged between tiles
+#define MAX_LEAVING_PART 1.0 // Maximum percentage of particles that can exchanged between tiles
 
 enum density_type {
 	UNIFORM, STEP, SLAB
@@ -58,13 +58,20 @@ typedef struct {
 	// 1 - From a lower region / 0 - From an upper region
 	t_particle_vector incoming_part[3];
 
-	// mass over charge ratio
+	// Outgoing particles
+	// 0 - Going down / 1 - Going up
+	t_particle_vector *outgoing_part[2];
+
+	// Mass over charge ratio
 	t_part_data m_q;
 
-	// total kinetic energy
+	// Total kinetic energy
 	double energy;
 
-	// charge of individual particle
+	// Number of particles pushed
+	double npush;
+
+	// Charge of individual particle
 	t_part_data q;
 
 	// Number of particles per cell
@@ -91,10 +98,6 @@ typedef struct {
 	// Moving window
 	bool moving_window;
 	int n_move;
-
-	// Outgoing particles
-	// 0 - Going down / 1 - Going up
-	t_particle_vector *outgoing_part[2];
 
 	// Sort
 	int n_tiles_x;
@@ -156,7 +159,7 @@ void spec_rep_pha(const t_part_data *buffer, const int rep_type, const int pha_n
 		const float pha_range[][2], const int iter_num, const float dt, const char path[128]);
 
 // Charge map
-void spec_deposit_charge(const t_species *spec, t_part_data *charge);
+void spec_deposit_charge(const t_species *spec, float *charge);
 void spec_rep_charge(t_part_data *restrict charge, const int true_nx[2], const t_fld box[2],
 		const int iter_num, const float dt, const bool moving_window, const char path[128]);
 
