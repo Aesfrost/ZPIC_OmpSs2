@@ -51,13 +51,6 @@ for each time_step do
 endfor
 
 ```
-
-#### OmpSs-2:
-- Simulation stages defined as OmpSs-2 tasks
-- Tasks are synchronized through data dependencies
-- Fully asynchronous execution
-- Dynamic load balancing (overdecomposition + dynamic task scheduling)
-
 For more details, please check our upcoming paper in EuroPar2021. The pre-print version is available in [ArXiv](https://arxiv.org/abs/2106.12485). The `ompss2` version in this repository corresponds to the `zpic-reduction-async` variant in the EuroPar2021 paper.
 
 ### NVIDIA GPUs (OpenACC)
@@ -67,6 +60,13 @@ For more details, please check our upcoming paper in EuroPar2021. The pre-print 
 - Particles are stored as a Structure of Arrays (SoA) for accessing the global memory in coalesced fashion
 - Data management is handled by NVIDIA Unified Memory 
 - Support for multi-GPUs systems
+
+### Features:
+#### OmpSs-2:
+- Simulation stages defined as OmpSs-2 tasks
+- Tasks are synchronized through data dependencies
+- Fully asynchronous execution
+- Dynamic load balancing (overdecomposition + dynamic task scheduling)
 
 #### OpenACC:
 - Uses OpenMP for launching kernels in multiple devices, synchronizing their execution, etc.
