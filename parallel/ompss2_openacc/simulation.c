@@ -289,9 +289,9 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int
 
 #else
 #ifdef ENABLE_PREFETCH
-	printf("%s,%d,%d,%d,1,%f,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), sim_time, npart / sim_time / 1E6);
+	printf("%s,%d,%d,1,%f,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), sim_time, npart / sim_time / 1E6);
 #else
-	printf("%s,%d,%d,%d,0,%f,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), sim_time, npart / sim_time / 1E6);
+	printf("%s,%d,%d,0,%f,%f\n", sim->name, sim->n_regions, acc_get_num_devices(DEVICE_TYPE), sim_time, npart / sim_time / 1E6);
 #endif
 #endif
 }
