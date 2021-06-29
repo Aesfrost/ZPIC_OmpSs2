@@ -1,40 +1,90 @@
 # Parallel ZPIC
 
-[ZPIC](https://github.com/ricardo-fonseca/zpic) is a sequential 2D EM-PIC kinetic plasma simulator based on OSIRIS [1], implementing the same core algorithm and features. From ZPIC code, we developed several parallel versions to explore task-based programming models ([OmpSs-2](https://pm.bsc.es/ompss-2)) and emerging platforms (GPUs with [OpenACC](https://www.openacc.org/)). 
+[ZPIC](https://github.com/ricardo-fonseca/zpic) is a sequential 2D EM-PIC kinetic plasma simulator based on OSIRIS [1], implementing the same core algorithm and features. From the ZPIC code (em2d variant), we developed several parallel versions to explore tasking ([OmpSs-2](https://pm.bsc.es/ompss-2)) and emerging platforms ([OpenACC](https://www.openacc.org/)/GPUs). 
 
-## Parallel versions
+## Parallelization Strategy and Features
 
-### OmpSs:
-- Spatial row-wise decomposition (i.e., simulation split into regions alongside the y axis)
-- All simulation steps defined as tasks
+### General Strategy
+
+In all parallel versions, the simulation space is split into multiple regions alongside the y axis (i.e., a row-wise decomposition). Each region stores both the particles inside it and the fraction of the grid they interact with, allowing both the particle advance and field integration to be performed locally. However, particles can exit their associated regions and must be transferred to their new location. Each region must also be padded with ghost cells, so that the thread processing the region can access grid quantities (current and EM fields) outside its boundaries. With a spatial decomposition, the ZPIC algorithm becomes:
+
+```
+function particle_advance(region)
+	for each particle in region do
+		Ep, Bp = interpolate_EMF(region.E, region.B, particle.pos)
+		update_particle_momentum(Ep, Bp, particle.u) 
+		old_pos = particle.pos
+		particle_push(particle)
+		deposit_current(region.J, old_pos, particle.pos)
+		check_boundaries(particle, region.outgoing_part)
+	endfor 
+	
+	if moving_window is enable then
+		shift_left(region.particles)
+		insert_new_particles(region)
+	endif
+endfunction
+
+for each time_step do
+	for each region in simulation parallel do 	
+		current_zero(region.J)
+		particle_advance(region)
+			
+		merge_buffers(region.particles)
+
+		update_gc_add(region.J, region.neighbours.J)
+
+		if region.J_filter is enable then 
+			apply_filter(region.J, region.J_filter)
+			update_gc_copy(region.J, region.neighbours.J) 
+		endif 
+		
+		yee_b(region.E, region.B, dt / 2, dx, dy)
+		yee_e(region.E, region.B, region.J, dt, dx, dy)
+		yee_b(region.E, region.B, dt / 2, dx, dy)
+					
+		if moving_window is enable then
+			shift_EMF_left(region.E, region.B)
+		endif
+		
+		update_gc_copy(region.E, region.neighbours.E)
+		update_gc_copy(region.B, region.neighbours.B)
+	endfor
+endfor
+
+```
+
+#### OmpSs-2 (`zpic-reduction-async`):
+- All simulation stages are defined as tasks
 - Tasks are synchronized exclusively by data dependencies
 - Fully asynchronous execution
-- Local buffers (one per region) + parallel reduction for solving data races in the current deposition
+- Dynamic load balancing (overdecomposition + dynamic task scheduling)
+
+For more details, please check our upcoming paper in EuroPar2021. The pre-print version is available in [ArXiv](https://arxiv.org/abs/2106.12485).
+
+### NVIDIA GPUs (OpenACC)
+- Spatial decomposition (see General Strategy)
+- Particles are stored as a Structure of Arrays (SoA) for accessing the global memory in coalesced fashion
+- Data management is handled by NVIDIA Unified Memory 
+- Each region is organized in tiles (16x16 cells) and the particles within the region are sorted based on the tile their are located in. Every time step, the program executes a modified bucket sort (adapted from [2, 3]) to preserve data locality (associating the particle with the tile their located in).
+- During the particle advance, each tile are mapped to a SM. Each SM then load the local EM fields to Shared Memory, advances the particles within the tile, deposit the current generated atomically in a local buffer and then updates the global electric current buffer with the local values.
+- Support for multi-GPUs systems
 
 ### OpenACC:
-- Target architecture: NVIDIA GPUs
-- Spatial row-wise decomposition (i.e., simulation split into regions alongside the y axis). Each region is further divided into tiles (16x16 cells). 
-- Particles: Structure of Arrays (SoA) for coalesced memory accesses
-- Highly optimized particle advance (shared memory usage, atomic operations with infrequent memory conflicts, etc.)
-- Highly optimized bucket (adapted [2, 3])
-- NVIDIA Unified Memory + explicit memory management for critical sections
-- Support for multi-GPUs systems (OpenMP as management layer: launching kernels, synchronizing devices, etc.)
+- OpenMP as management layer: launching kernels, synchronizing devices, etc.
+- Synchronous execution
+- Prefetch routines to move data between devices to avoid page faults.
 
-### OmpSs + OpenACC:
-- Target architecture: NVIDIA GPUs
-- Spatial row-wise decomposition (i.e., simulation split into regions alongside the y axis). Each region is further divided into tiles (16x16 cells). 
-- Particles: Structure of Arrays (SoA) for coalesced memory accesses
-- Highly optimized particle advance (shared memory usage, atomic operations with infrequent memory conflicts, etc.)
-- Highly optimized bucket sort based on [2, 3]
-- NVIDIA Unified Memory + Explicit memory management for critical sections
-- Support for multi-GPUs systems
+### OmpSs-2 + OpenACC:
+- OmpSs-2 as management layer
 - OpenACC kernels incorporated as OmpSs tasks
 - Asynchronous queues/streams for kernel overlapping
 - Fully asynchronous execution
-- Variant: Manual - Manual management of asynchronous queues and tasks (instead of entrusting this function to the NANOS6 runtime)
 
 ## Plasma Experiments / Input
-Please check for the [ZPIC documentation](https://github.com/ricardo-fonseca/zpic/blob/master/doc/Documentation.md) for more information for setting up the simulation parameters. Included experiments: LWFA and Weibel Instability. For organization purpose, the simulation parameters are included on the file name with the following naming scheme: 
+Please check for the [ZPIC documentation](https://github.com/ricardo-fonseca/zpic/blob/master/doc/Documentation.md) for more information for setting up the simulation parameters. In this repository, there are two simulation already included: LWFA and Weibel Instability. 
+
+For organization purpose, each file is named after the simulation parameters according to the following naming scheme:
 ```
 experiment type - number of time steps - number of particles per species - grid size x - grid size y
 ```
@@ -43,29 +93,42 @@ experiment type - number of time steps - number of particles per species - grid 
 
 Like the original ZPIC, all versions report the simulation parameters in the ZDF format. For more information, please visit the [ZDF repository](https://github.com/ricardo-fonseca/zpic/tree/master/zdf).
 
+The simulation timing and relevant information are displayed in the terminal after the simulation is completed.
+
 ## Compilation and Execution
 
-### Compilation requirements:
+### Requirements:
 
 OmpSs-based versions:
 - [Nanos6 Runtime](https://github.com/bsc-pm/nanos6)
 - [Mercurium Compiler](https://github.com/bsc-pm/mcxx)
 
 OpenACC:
-- PGI Compiler 19.10 or greater (later renamed as NVIDIA HPC SDK)
+- PGI Compiler 19.10 or newer (later renamed as NVIDIA HPC SDK)
+- CUDA v9.0 or newer
+- Pascal or newer GPUs
+- [Nanos6 Runtime (experimental)](https://github.com/epeec/nanos6-openacc) (get-queue-affinity branch)
 
-### OmpSs/OpenACC:
+
+### Compilation Flags
+
 ```
-make
-./zpic <Number of Regions>
+-DTEST Print the simulation timing and other information in a CSV friendly format. Disable all reporting and other terminal outputs
+
+-DENABLE_ADVISE Enable CUDA MemAdvise routines to guide the Unified Memory System. Any OpenACC versions. 
+
+-DENABLE_PREFETCH (or make prefetch) Enable CUDA MemPrefetch routines (experimental)
+
+-DENABLE_AFFINITY (or make affinity) Enable the use of device affinity (schedule tasks based on the data location). Otherwise, Nanos6 runtime only uses 1 GPU. OmpSs@OpenACC version only.
+ 
 ```
 
-### OmpSs@OpenAcc:
-```
-make affinity
-./zpic <Number of Regions> <Percentage of regions dedicated to GPU> <Number of GPU regions>
-```
+### Commands
 
+```
+make <option> -j8
+./zpic <number of regions>
+```
 
 ## References
 
