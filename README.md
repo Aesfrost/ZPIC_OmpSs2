@@ -16,12 +16,12 @@ function particle_advance(region)
 		old_pos = particle.pos
 		particle_push(particle)
 		deposit_current(region.J, old_pos, particle.pos)
-		check_boundaries(particle, region.outgoing_part)
+		check_exiting_part(particle, region.outgoing_part)
 	endfor 
 	
 	if moving_window is enable then
-		shift_left(region.particles)
-		insert_new_particles(region)
+		shift_part_left(region.particles)
+		inject_new_particles(region)
 	endif
 endfunction
 
@@ -29,7 +29,7 @@ for each time_step do
 	for each region in simulation parallel do 	
 		current_zero(region.J)
 		particle_advance(region)
-		merge_buffers(region.particles)
+		add_incoming_part(region.particles, region.incoming_part)
 		update_gc_add(region.J, region.neighbours.J)
 
 		if region.J_filter is enable then 
@@ -62,10 +62,10 @@ For more details, please check our upcoming paper in EuroPar2021. The pre-print 
 
 ### NVIDIA GPUs (OpenACC)
 - Spatial decomposition (see General Strategy)
-- Particles are stored as a Structure of Arrays (SoA) for accessing the global memory in coalesced fashion
-- Data management is handled by NVIDIA Unified Memory 
 - Each region is organized in tiles (16x16 cells) and the particles are sorted based on the tile their are located in. Every time step, the program executes a modified bucket sort (adapted from [2, 3]) to preserve data locality (associating the particle with the tile their located in).
 - During the particle advance, each tile are mapped to a SM. Each SM then load the local EM fields to Shared Memory, advances the particles within the tile, deposit the current generated atomically in a local buffer and then updates the global electric current buffer with the local values.
+- Particles are stored as a Structure of Arrays (SoA) for accessing the global memory in coalesced fashion
+- Data management is handled by NVIDIA Unified Memory 
 - Support for multi-GPUs systems
 
 #### OpenACC:
