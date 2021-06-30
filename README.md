@@ -51,30 +51,27 @@ for each time_step do
 endfor
 
 ```
-For a more detailed explanation, please check our upcoming paper in EuroPar2021. The pre-print version is available in [ArXiv](https://arxiv.org/abs/2106.12485). The `ompss2` version in this repository corresponds to the `zpic-reduction-async` variant in the EuroPar2021 paper.
+For a more detailed explanation, please check our upcoming paper in EuroPar2021. The pre-print version is available in [ArXiv](https://arxiv.org/abs/2106.12485). The `ompss2` version in this repository corresponds to the `zpic-reduction-async` variant in the paper.
 
 ### NVIDIA GPUs (OpenACC)
-- Spatial decomposition (see General Strategy)
-- Each region is organized in tiles (16x16 cells) and the particles are sorted based on the tile their are located in. Every time step, the program executes a modified bucket sort (adapted from [2, 3]) to preserve data locality (associating the particle with the tile their located in).
-- During the particle advance, each tile are mapped to a SM. Each SM then load the local EM fields to Shared Memory, advances the particles within the tile, deposit the current generated atomically in a local buffer and then updates the global electric current buffer with the local values.
-- Particles are stored as a Structure of Arrays (SoA) for accessing the global memory in coalesced fashion
-- Data management is handled by NVIDIA Unified Memory 
-- Support for multi-GPUs systems
+In addition to the spatial decomposition (see General Strategy), the particles within each region are sorted by tiles (16x16 cells) in order to use the Shared Memory as an explicit managed cache. During the particle advance, each tile is mapped to one SM. The SM then loads the local EM fields into the local memory, advances all the particles within, deposits atomically the current generated in a local buffer, and finally updates atomically electric current in region with the local values. This process is repeated for all tiles in a given region [2, 3]. Every time step, the program executes a highly optimized Bucket Sort (adapted from [3, 4]) to rearrange the particles, preserving data locality (which associates the particles with the tile their located in). The particles are stored as a Structure of Arrays (SoA) for accessing the global memory in coalesced fashion.
+
+All kernels are developed in [OpenACC](https://www.openacc.org/) and the program relies on the NVIDIA Unified Memory for transferring data between the host and device. Some critical routines (e.g., particle sorting) uses explicit memory management. All programs supports multi-GPU systems.
 
 ### Features:
 #### OmpSs-2:
-- Simulation stages defined as OmpSs-2 tasks
-- Tasks are synchronized through data dependencies
+- Each simulation step is defined as an OmpSs-2 tasks
+- All tasks are synchronized through data dependencies
 - Fully asynchronous execution
 - Dynamic load balancing (overdecomposition + dynamic task scheduling)
 
 #### OpenACC:
 - Uses OpenMP for launching kernels in multiple devices, synchronizing their execution, etc.
-- Prefetch routines to move data between devices to avoid page faults.
+- Prefetch routines to move data between devices before kernel execution.
 
 #### OmpSs-2 + OpenACC:
 - Uses OmpSs-2 for launching kernels in multiple devices, synchronizing their execution, etc.
-- OpenACC kernels incorporated as OmpSs tasks
+- OpenACC kernels incorporated in OmpSs tasks
 - Asynchronous queues/streams for kernel overlapping
 - Fully asynchronous execution
 - (Deprecated) Hybrid execution (CPU + GPU)
@@ -134,8 +131,10 @@ make <option> -j8
 
 [1] R. A. Fonseca et al., ‘OSIRIS: A Three-Dimensional, Fully Relativistic Particle in Cell Code for Modeling Plasma Based Accelerators’, in Computational Science — ICCS 2002, Berlin, Heidelberg, 2002, vol. 2331, pp. 342–351. doi: 10.1007/3-540-47789-6_36.
 
-[2] A. Jocksch, F. Hariri, T. M. Tran, S. Brunner, C. Gheller, and L. Villard, ‘A bucket sort algorithm for the particle-in-cell method on manycore architectures’, in Parallel Processing and Applied Mathematics, 2016, pp. 43–52. doi: 10.1007/978-3-319-32149-3_5.
+[2] K. Germaschewski et al., ‘The Plasma Simulation Code: A modern particle-in-cell code with load-balancing and GPU support’, arXiv:1310.7866 [physics], Nov. 2015, Accessed: Nov. 25, 2019. [Online]. Available: [http://arxiv.org/abs/1310.7866](http://arxiv.org/abs/1310.7866)
 
-[3] F. Hariri et al., ‘A portable platform for accelerated PIC codes and its application to GPUs using OpenACC’, Computer Physics Communications, vol. 207, pp. 69–82, Oct. 2016, doi: 10.1016/j.cpc.2016.05.008.
+[3] A. Jocksch, F. Hariri, T. M. Tran, S. Brunner, C. Gheller, and L. Villard, ‘A bucket sort algorithm for the particle-in-cell method on manycore architectures’, in Parallel Processing and Applied Mathematics, 2016, pp. 43–52. doi: 10.1007/978-3-319-32149-3_5.
+
+[4] F. Hariri et al., ‘A portable platform for accelerated PIC codes and its application to GPUs using OpenACC’, Computer Physics Communications, vol. 207, pp. 69–82, Oct. 2016, doi: 10.1016/j.cpc.2016.05.008.
 
 
