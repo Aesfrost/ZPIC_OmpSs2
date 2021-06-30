@@ -107,18 +107,11 @@ OpenACC:
 
 ### Compilation Flags
 
-```
--DTEST Print the simulation timing and other information in a CSV friendly format. Disable all reporting and other terminal outputs
-```
-```
--DENABLE_ADVISE Enable CUDA MemAdvise routines to guide the Unified Memory System (on by default). Any OpenACC versions. 
-```
-```
--DENABLE_PREFETCH (or make prefetch) Enable CUDA MemPrefetch routines (experimental). Only the pure OpenACC support this feature.
-```
-```
--DENABLE_AFFINITY (or make affinity) Enable the use of device affinity (the runtime schedule openacc tasks based on the data location). Otherwise, Nanos6 runtime only uses 1 GPU. Only supported by OmpSs@OpenACC
-```
+`-DTEST`: Print the simulation timing and other information in a CSV friendly format. Disable all reporting and other terminal outputs
+`-DENABLE_ADVISE` (`ON` by default): Enable CUDA MemAdvise routines to guide the Unified Memory System. All OpenACC versions
+`-DENABLE_PREFETCH` (or `make prefetch`): Enable CUDA MemPrefetch routines (experimental). Pure OpenACC only.
+`-DENABLE_AFFINITY` (or `make affinity`): Enable the use of device affinity (the runtime schedule openacc tasks based on the data location). Otherwise, Nanos6 runtime only uses 1 GPU. Only supported by OmpSs@OpenACC
+
 
 ### Commands
 
