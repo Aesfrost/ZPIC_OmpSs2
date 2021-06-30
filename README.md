@@ -6,7 +6,7 @@
 
 ### General Strategy
 
-In all parallel versions, the simulation space is split into multiple regions alongside the y axis (i.e., a row-wise decomposition). Each region stores both the particles inside it and the fraction of the grid they interact with, allowing both the particle advance and field integration to be performed locally. However, particles can exit their associated regions and must be transferred to their new location. Each region must also be padded with ghost cells, so that the thread processing the region can access grid quantities (current and EM fields) outside its boundaries. With this decomposition, the ZPIC algorithm becomes:
+In all parallel versions, the simulation space is split into multiple regions alongside the y axis (i.e., a row-wise decomposition). Each region stores both the particles inside it and the fraction of the grid they interact with, allowing both the particle advance and field integration to be performed locally. However, particles can exit their associated regions and must be transferred to their new location. Each region must also be padded with ghost cells, so that the thread processing the region can access grid quantities (current and EM fields) outside its boundaries. With this decomposition, the ZPIC code becomes:
 
 ```
 function particle_advance(region)
@@ -51,7 +51,7 @@ for each time_step do
 endfor
 
 ```
-For more details, please check our upcoming paper in EuroPar2021. The pre-print version is available in [ArXiv](https://arxiv.org/abs/2106.12485). The `ompss2` version in this repository corresponds to the `zpic-reduction-async` variant in the EuroPar2021 paper.
+For a more detailed explanation, please check our upcoming paper in EuroPar2021. The pre-print version is available in [ArXiv](https://arxiv.org/abs/2106.12485). The `ompss2` version in this repository corresponds to the `zpic-reduction-async` variant in the EuroPar2021 paper.
 
 ### NVIDIA GPUs (OpenACC)
 - Spatial decomposition (see General Strategy)
@@ -73,14 +73,14 @@ For more details, please check our upcoming paper in EuroPar2021. The pre-print 
 - Prefetch routines to move data between devices to avoid page faults.
 
 #### OmpSs-2 + OpenACC:
-- Uses OmpSs-2 as management layer
+- Uses OmpSs-2 for launching kernels in multiple devices, synchronizing their execution, etc.
 - OpenACC kernels incorporated as OmpSs tasks
 - Asynchronous queues/streams for kernel overlapping
 - Fully asynchronous execution
 - (Deprecated) Hybrid execution (CPU + GPU)
 
 ## Plasma Experiments / Input
-Please check for the [ZPIC documentation](https://github.com/ricardo-fonseca/zpic/blob/master/doc/Documentation.md) for more information for setting up the simulation parameters. In all versions, there are two included simulation: LWFA (Laser Wakefield Acceleration) and Weibel (Instability).
+Please check for the [ZPIC documentation](https://github.com/ricardo-fonseca/zpic/blob/master/doc/Documentation.md) for more information for setting up the simulation parameters. The LWFA (Laser Wakefield Acceleration) and Weibel (Instability) simulations are already included in all versions.
 
 For organization purpose, each file is named after the simulation parameters according to the following scheme:
 ```
@@ -114,13 +114,13 @@ OpenACC:
 -DTEST Print the simulation timing and other information in a CSV friendly format. Disable all reporting and other terminal outputs
 ```
 ```
--DENABLE_ADVISE Enable CUDA MemAdvise routines to guide the Unified Memory System. Any OpenACC versions. 
+-DENABLE_ADVISE Enable CUDA MemAdvise routines to guide the Unified Memory System (on by default). Any OpenACC versions. 
 ```
 ```
--DENABLE_PREFETCH (or make prefetch) Enable CUDA MemPrefetch routines (experimental)
+-DENABLE_PREFETCH (or make prefetch) Enable CUDA MemPrefetch routines (experimental). Only the pure OpenACC support this feature.
 ```
 ```
--DENABLE_AFFINITY (or make affinity) Enable the use of device affinity (schedule tasks based on the data location). Otherwise, Nanos6 runtime only uses 1 GPU. OmpSs@OpenACC version only.
+-DENABLE_AFFINITY (or make affinity) Enable the use of device affinity (the runtime schedule openacc tasks based on the data location). Otherwise, Nanos6 runtime only uses 1 GPU. Only supported by OmpSs@OpenACC
 ```
 
 ### Commands
