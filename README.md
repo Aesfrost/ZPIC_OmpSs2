@@ -98,6 +98,8 @@ OmpSs-based versions:
 - [Nanos6 Runtime](https://github.com/bsc-pm/nanos6)
 - [Mercurium Compiler](https://github.com/bsc-pm/mcxx)
 
+**Important:** This code only works with `regions` dependency model instead of the default a `discrete` model. The dependency model can be changed in the `nanos6.toml` at `$INSTALLATION_PREFIX/share/doc/nanos6/scripts` (installation-wide). Alternatively, the environment variable `NANOS6_CONFIG_OVERRIDE="version.dependencies=regions"` can be used for override the default configuration (specified in the `nanos6.toml`).
+
 OpenACC:
 - PGI Compiler 19.10 or newer (later renamed as NVIDIA HPC SDK)
 - CUDA v9.0 or newer
