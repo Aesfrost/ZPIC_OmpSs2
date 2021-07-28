@@ -96,7 +96,7 @@ void spec_merge_vectors(t_species *spec)
 }
 
 // Add particle to the outgoing buffer
-void spec_add_to_outgoing_vector(t_particle_vector *temp, t_part part)
+void spec_add_to_outgoing_vector(t_part_vector *temp, t_part part)
 {
 	if (temp->size + 1 > temp->size_max)
 	{
@@ -113,7 +113,7 @@ void spec_add_to_outgoing_vector(t_particle_vector *temp, t_part part)
  *********************************************************************************************/
 
 // Set the momentum of the injected particles
-void spec_set_u(t_particle_vector *vector, const int start, const int end, const t_part_data ufl[3],
+void spec_set_u(t_part_vector *vector, const int start, const int end, const t_part_data ufl[3],
 		const t_part_data uth[3])
 {
 	for (int i = start; i < end; i++)
@@ -125,7 +125,7 @@ void spec_set_u(t_particle_vector *vector, const int start, const int end, const
 }
 
 // Set the initial position of the particles
-void spec_set_x(t_particle_vector *vector, const int range[][2], const int ppc[2],
+void spec_set_x(t_part_vector *vector, const int range[][2], const int ppc[2],
 		const t_density *part_density, const t_part_data dx[2], const int n_move)
 {
 	float *poscell;
@@ -200,7 +200,7 @@ void spec_set_x(t_particle_vector *vector, const int range[][2], const int ppc[2
 }
 
 // Inject the particles in the simulation
-void spec_inject_particles(t_particle_vector *part_vector, const int range[][2], const int ppc[2],
+void spec_inject_particles(t_part_vector *part_vector, const int range[][2], const int ppc[2],
 		const t_density *part_density, const t_part_data dx[2], const int n_move,
 		const t_part_data ufl[3], const t_part_data uth[3])
 {
@@ -1015,7 +1015,7 @@ void spec_rep_pha(const t_part_data *buffer, const int rep_type, const int pha_n
 // Calculate the energy of the particles
 void spec_calculate_energy(t_species *spec)
 {
-	t_particle_vector *restrict part = &spec->main_vector;
+	t_part_vector *restrict part = &spec->main_vector;
 	spec->energy = 0;
 
 	for (int i = 0; i < part->size; i++)

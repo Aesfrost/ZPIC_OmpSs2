@@ -36,7 +36,7 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 	region->nx[1] = region->limits_y[1] - region->limits_y[0];
 
 	// Initialise the particles inside the region
-	t_particle_vector *restrict particles;
+	t_part_vector *restrict particles;
 
 	region->n_species = n_spec;
 	region->species = (t_species*) malloc(n_spec * sizeof(t_species));

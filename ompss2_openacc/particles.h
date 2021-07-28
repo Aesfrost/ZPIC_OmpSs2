@@ -46,21 +46,21 @@ typedef struct {
 	int size_max;
 	bool enable_vector;
 
-} t_particle_vector;
+} t_part_vector;
 
 typedef struct {
 	char name[MAX_SPNAME_LEN];
 
 	// Particle data buffer
-	t_particle_vector main_vector;
+	t_part_vector main_vector;
 
 	// Temporary buffer for incoming particles
 	// 1 - From a lower region / 0 - From an upper region
-	t_particle_vector incoming_part[3];
+	t_part_vector incoming_part[3];
 
 	// Outgoing particles
 	// 0 - Going down / 1 - Going up
-	t_particle_vector *outgoing_part[2];
+	t_part_vector *outgoing_part[2];
 
 	// Mass over charge ratio
 	t_part_data m_q;
@@ -111,21 +111,21 @@ typedef struct {
 void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc[],
 		const t_part_data ufl[], const t_part_data uth[], const int nx[], t_part_data box[],
 		const float dt, t_density *density, const int region_size, const int device);
-void spec_inject_particles(t_particle_vector *part_vector, const int range[][2], const int ppc[2],
+void spec_inject_particles(t_part_vector *part_vector, const int range[][2], const int ppc[2],
 		const t_density *part_density, const t_part_data dx[2], const int n_move,
 		const t_part_data ufl[3], const t_part_data uth[3]);
 void spec_delete(t_species *spec);
 void spec_organize_in_tiles(t_species *spec, const int limits_y[2], const int device);
 
 // Utilities
-void part_vector_alloc(t_particle_vector *vector, const int size_max, const int device);
-void part_vector_free(t_particle_vector *vector);
-void part_vector_realloc(t_particle_vector *vector, const int new_size, const int device);
-void part_vector_assign_valid_part(const t_particle_vector *source, const int source_idx,
-									t_particle_vector *target, const int target_idx);
-void part_vector_memcpy(const t_particle_vector *source, t_particle_vector *target, const int begin,
+void part_vector_alloc(t_part_vector *vector, const int size_max, const int device);
+void part_vector_free(t_part_vector *vector);
+void part_vector_realloc(t_part_vector *vector, const int new_size, const int device);
+void part_vector_assign_valid_part(const t_part_vector *source, const int source_idx,
+									t_part_vector *target, const int target_idx);
+void part_vector_memcpy(const t_part_vector *source, t_part_vector *target, const int begin,
 						 const int size);
-void part_vector_mem_advise(t_particle_vector *vector, const int advise, const int device);
+void part_vector_mem_advise(t_part_vector *vector, const int advise, const int device);
 
 // Report - General
 double spec_time(void);

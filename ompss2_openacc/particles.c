@@ -33,7 +33,7 @@ typedef struct {
  * Vector Utilities
  *********************************************************************************************/
 
-void part_vector_alloc(t_particle_vector *vector, const int size_max, const int device)
+void part_vector_alloc(t_part_vector *vector, const int size_max, const int device)
 {
 
 	vector->ix = alloc_device_buffer(size_max * sizeof(int), device);
@@ -50,7 +50,7 @@ void part_vector_alloc(t_particle_vector *vector, const int size_max, const int 
 	vector->enable_vector = true;
 }
 
-void part_vector_free(t_particle_vector *vector)
+void part_vector_free(t_part_vector *vector)
 {
 
 	free_device_buffer(vector->ix);
@@ -63,7 +63,7 @@ void part_vector_free(t_particle_vector *vector)
 	free_device_buffer(vector->invalid);
 }
 
-void part_vector_realloc(t_particle_vector *vector, const int new_size, const int device)
+void part_vector_realloc(t_part_vector *vector, const int new_size, const int device)
 {
 	vector->size_max = new_size;
 
@@ -77,8 +77,8 @@ void part_vector_realloc(t_particle_vector *vector, const int new_size, const in
 	realloc_device_buffer((void**) &vector->invalid, vector->size, vector->size_max, sizeof(bool), device);
 }
 
-void part_vector_assign_valid_part(const t_particle_vector *source, const int source_idx,
-								   t_particle_vector *target, const int target_idx)
+void part_vector_assign_valid_part(const t_part_vector *source, const int source_idx,
+								   t_part_vector *target, const int target_idx)
 {
 	target->ix[target_idx] = source->ix[source_idx];
 	target->iy[target_idx] = source->iy[source_idx];
@@ -90,7 +90,7 @@ void part_vector_assign_valid_part(const t_particle_vector *source, const int so
 	target->invalid[target_idx] = source->invalid[source_idx];
 }
 
-void part_vector_memcpy(const t_particle_vector *source, t_particle_vector *target, const int begin,
+void part_vector_memcpy(const t_part_vector *source, t_part_vector *target, const int begin,
 						const int size)
 {
 	memcpy(target->ix, source->ix + begin, size * sizeof(int));
@@ -103,7 +103,7 @@ void part_vector_memcpy(const t_particle_vector *source, t_particle_vector *targ
 	memcpy(target->invalid, source->invalid + begin, size * sizeof(bool));
 }
 
-void part_vector_mem_advise(t_particle_vector *vector, const int advise, const int device)
+void part_vector_mem_advise(t_part_vector *vector, const int advise, const int device)
 {
 	cuMemAdvise(vector->ix, vector->size_max * sizeof(int), advise, device);
 	cuMemAdvise(vector->iy, vector->size_max * sizeof(int), advise, device);
@@ -117,7 +117,7 @@ void part_vector_mem_advise(t_particle_vector *vector, const int advise, const i
 
 // Prefetching for particle vector
 #ifdef ENABLE_PREFETCH
-void spec_prefetch_openacc(t_particle_vector *part, const int device, void *stream)
+void spec_prefetch_openacc(t_part_vector *part, const int device, void *stream)
 {
 	cuMemPrefetchAsync(part->ix, part->size_max * sizeof(int), device, stream);
 	cuMemPrefetchAsync(part->iy, part->size_max * sizeof(int), device, stream);
@@ -136,7 +136,7 @@ void spec_prefetch_openacc(t_particle_vector *part, const int device, void *stre
  *********************************************************************************************/
 
 // Set the momentum of the injected particles
-void spec_set_u(t_particle_vector *vector, const int start, const int end, const t_part_data ufl[3],
+void spec_set_u(t_part_vector *vector, const int start, const int end, const t_part_data ufl[3],
 		const t_part_data uth[3])
 {
 	for (int i = start; i < end; i++)
@@ -148,7 +148,7 @@ void spec_set_u(t_particle_vector *vector, const int start, const int end, const
 }
 
 // Set the position of the injected particles
-void spec_set_x(t_particle_vector *vector, const int range[][2], const int ppc[2],
+void spec_set_x(t_part_vector *vector, const int range[][2], const int ppc[2],
 		const t_density *part_density, const t_part_data dx[2], const int n_move)
 {
 	float *poscell;
@@ -223,7 +223,7 @@ void spec_set_x(t_particle_vector *vector, const int range[][2], const int ppc[2
 }
 
 // Inject the particles in the simulation
-void spec_inject_particles(t_particle_vector *part_vector, const int range[][2], const int ppc[2],
+void spec_inject_particles(t_part_vector *part_vector, const int range[][2], const int ppc[2],
 		const t_density *part_density, const t_part_data dx[2], const int n_move,
 		const t_part_data ufl[3], const t_part_data uth[3])
 {
@@ -1116,8 +1116,8 @@ void spec_apply_sort(uint32_t *restrict vector, int *restrict source_idx, int *r
 // Calculate an histogram for the number of particles per tile
 #pragma oss task label("Sort (GPU, Histogram NP)") device(openacc) \
 	inout(tile_offset[0: n_tiles_x * n_tiles_y])
-void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_offset,
-						   t_particle_vector incoming_part[3], int *restrict np_per_tile,
+void histogram_np_per_tile(t_part_vector *part_vector, int *restrict tile_offset,
+						   t_part_vector incoming_part[3], int *restrict np_per_tile,
 						   const int n_tiles_y, const int n_tiles_x, const int offset_region)
 {
 	const int n_tiles = n_tiles_x * n_tiles_y;
@@ -1218,7 +1218,7 @@ void histogram_np_per_tile(t_particle_vector *part_vector, int *restrict tile_of
 // Calculate an histogram for the particles moving between tiles
 #pragma oss task label("Sort (GPU, Histogram Leaving Part)") device(openacc)  \
 	in(tile_offset[0: n_tiles]) out(np_leaving[0: n_tiles])
-void histogram_moving_particles(t_particle_vector *part_vector, int *restrict tile_offset,
+void histogram_moving_particles(t_part_vector *part_vector, int *restrict tile_offset,
 								int *restrict np_leaving, const int n_tiles, const int n_tiles_x,
 								const int offset_region, const int old_size)
 {
@@ -1248,7 +1248,7 @@ void histogram_moving_particles(t_particle_vector *part_vector, int *restrict ti
 
 // Identify the particles in the wrong tile and then generate a sorted list for them
 // source idx - particle's current position / target idx - particle's new position
-void calculate_sorted_idx(t_particle_vector *part_vector, int *restrict tile_offset,
+void calculate_sorted_idx(t_part_vector *part_vector, int *restrict tile_offset,
 						  int *restrict source_idx, int *restrict target_idx,
 						  int *restrict sort_counter, int *restrict mv_part_offset,
 						  const int n_tiles_y, const int n_tiles_x, const int old_size,
@@ -1380,7 +1380,7 @@ void calculate_sorted_idx(t_particle_vector *part_vector, int *restrict tile_off
 }
 
 // Merge the temporary vector for the incoming particle into the main vector
-void merge_particles_buffers(t_particle_vector *part_vector, t_particle_vector *incoming_part,
+void merge_particles_buffers(t_part_vector *part_vector, t_part_vector *incoming_part,
 							 int *restrict counter, int *restrict target_idx, const int n_tiles_x,
 							 const int offset_region, const int queue)
 {
@@ -1420,7 +1420,7 @@ void merge_particles_buffers(t_particle_vector *part_vector, t_particle_vector *
 
 #pragma oss task label("Sort (GPU, Sort Particles)") device(openacc) \
 	inout(tile_offset[0: n_tiles_x * n_tiles_y]) in(mv_part_offset[0: n_tiles_x * n_tiles_y])
-void spec_sort_particles(t_particle_vector *part_vector, t_particle_vector incoming_part[3],
+void spec_sort_particles(t_part_vector *part_vector, t_part_vector incoming_part[3],
 						 int *tile_offset, int *mv_part_offset, int *source_idx, int *target_idx,
 						 int *counter, uint32_t *temp, const int n_tiles_x, const int n_tiles_y,
 						 const int offset_region, const int old_size)

@@ -48,15 +48,15 @@ typedef struct {
 	t_part *data;
 	int size;
 	int size_max;
-} t_particle_vector;
+} t_part_vector;
 
 typedef struct {
 	char name[MAX_SPNAME_LEN];
 
 	// Particle data buffer
-	t_particle_vector main_vector;
-	t_particle_vector incoming_part[2];    	// Temporary buffer for incoming particles
-	t_particle_vector *outgoing_part[2]; 	// Outgoing particles (0 - Below / 1 - Above)
+	t_part_vector main_vector;
+	t_part_vector incoming_part[2];    	// Temporary buffer for incoming particles
+	t_part_vector *outgoing_part[2]; 	// Outgoing particles (0 - Below / 1 - Above)
 
 	// Mass over charge ratio
 	t_part_data m_q;
@@ -102,7 +102,7 @@ typedef struct {
 void spec_new(t_species *spec, char name[], const t_part_data m_q, const int ppc[],
 		const t_part_data ufl[], const t_part_data uth[], const int nx[], t_part_data box[],
 		const float dt, t_density *density);
-void spec_inject_particles(t_particle_vector *part_vector, const int range[][2], const int ppc[2],
+void spec_inject_particles(t_part_vector *part_vector, const int range[][2], const int ppc[2],
 		const t_density *part_density, const t_part_data dx[2], const int n_move,
 		const t_part_data ufl[3], const t_part_data uth[3]);
 void spec_delete(t_species *spec);
