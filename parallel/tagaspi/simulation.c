@@ -430,11 +430,7 @@ void sim_iter(t_simulation *sim)
 			             regions[i].limits, sim->nx);
 
 		if (i == 0 || i == n_regions - 1)
-		{
-			current_wait_comm_y(&regions[i].local_current, NOTIF_ID_CURRENT_ACK);
 			current_send_gc_y(&regions[i].local_current, i, sim->adj_ranks_grid);
-			current_wait_comm_y(&regions[i].local_current, NOTIF_ID_CURRENT);
-		}
 	}
 
 	for (int i = 0; i < n_regions; i++)
@@ -445,11 +441,7 @@ void sim_iter(t_simulation *sim)
 	}
 
 	for (int i = 0; i < n_regions; i++)
-	{
-		current_wait_comm_x(&regions[i].local_current, i, NOTIF_ID_CURRENT_ACK);
 		current_send_gc_x(&regions[i].local_current, i, sim->adj_ranks_grid);
-		current_wait_comm_x(&regions[i].local_current, i, NOTIF_ID_CURRENT);
-	}
 
 	for (int i = 0; i < n_regions; i++)
 		current_reduction_x(&regions[i].local_current, i, sim->adj_ranks_grid);
