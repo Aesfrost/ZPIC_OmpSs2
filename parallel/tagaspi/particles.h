@@ -123,6 +123,7 @@ void spec_delete(t_species *spec);
 
 // CPU Tasks
 void spec_receive_ack(t_species *spec, const int region_id, const int spec_id);
+void spec_wait_comm(t_species *spec, const int region_id, const int spec_id);
 
 #pragma oss task label("Spec Advance") \
 	in(emf->E_buf[0; emf->total_size]) \
@@ -150,7 +151,8 @@ void spec_send_particles(t_species *spec, const int region_id, const int spec_id
 
 #pragma oss task label("Spec Receive") \
 	inout(spec->main_vector) \
-	in(spec->incoming_part[0:7])
+	in(spec->incoming_part[0:7]) \
+	onready(spec_wait_comm(spec, region_id, spec_id))
 void spec_receive_particles(t_species *spec, const int region_id, const int spec_id,
                             const gaspi_rank_t adj_ranks[8]);
 

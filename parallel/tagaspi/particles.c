@@ -420,19 +420,38 @@ void spec_receive_ack(t_species *spec, const int region_id, const int spec_id)
 {
 	if(spec->iter > 1)
 	{
-		int notif_ids[8];
-
-		for (int dir = 0; dir < NUM_ADJ_PART; dir++)
+		for (int i = 0; i < NUM_ADJ_PART; i++)
 		{
-			if (spec->gaspi_segm_offset_send[dir] >= 0)
+			if (spec->gaspi_segm_offset_send[i] >= 0)
 			{
-				if (dir == PART_RIGHT || dir == PART_LEFT)
-					notif_ids[dir] = NOTIFICATION_ID(dir, region_id, NOTIF_ID_PART_ACK(spec_id));
-				else notif_ids[dir] = NOTIFICATION_ID(dir, 0, NOTIF_ID_PART_ACK(spec_id));
-			}else notif_ids[dir] = -1;
-		}
+				int notif_id;
 
-		gaspi_recv(PART_SEGMENT_ID(spec_id), notif_ids);
+				if (i == PART_RIGHT || i == PART_LEFT)
+					notif_id = NOTIFICATION_ID(i, region_id, NOTIF_ID_PART_ACK(spec_id));
+				else notif_id = NOTIFICATION_ID(i, 0, NOTIF_ID_PART_ACK(spec_id));
+
+				CHECK_GASPI_ERROR(tagaspi_notify_async_wait(PART_SEGMENT_ID(spec_id), notif_id,
+				                  GASPI_NOTIFICATION_IGNORE));
+			}
+		}
+	}
+}
+
+void spec_wait_comm(t_species *spec, const int region_id, const int spec_id)
+{
+	for (int i = 0; i < NUM_ADJ_PART; i++)
+	{
+		if (spec->gaspi_segm_offset_recv[i] >= 0)
+		{
+			int notif_id;
+
+			if (i == PART_RIGHT || i == PART_LEFT)
+				notif_id = NOTIFICATION_ID(i, region_id, NOTIF_ID_PART(spec_id));
+			else notif_id = NOTIFICATION_ID(i, 0, NOTIF_ID_PART(spec_id));
+
+			CHECK_GASPI_ERROR(tagaspi_notify_async_wait(PART_SEGMENT_ID(spec_id), notif_id,
+			                  &spec->incoming_part[i].size));
+		}
 	}
 }
 
@@ -500,21 +519,6 @@ void spec_send_particles(t_species *spec, const int region_id, const int spec_id
 				                               COMM_PART_WRITE,
 				                               queue));
 			}
-		}
-	}
-
-	int notif_ids[8];
-	for (int i = 0; i < NUM_ADJ_PART; i++)
-	{
-		if (spec->gaspi_segm_offset_recv[i] >= 0)
-		{
-			if (i == PART_RIGHT || i == PART_LEFT)
-				notif_ids[i] = NOTIFICATION_ID(i, region_id, NOTIF_ID_PART(spec_id));
-			else notif_ids[i] = NOTIFICATION_ID(i, 0, NOTIF_ID_PART(spec_id));
-
-			CHECK_GASPI_ERROR(tagaspi_notify_async_wait(PART_SEGMENT_ID(spec_id), notif_ids[i],
-			                                            &spec->incoming_part[i].size));
-
 		}
 	}
 }

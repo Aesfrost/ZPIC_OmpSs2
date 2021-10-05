@@ -87,6 +87,10 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt, const bool on_ri
 
 	emf->on_left_edge = on_left_edge;
 	emf->on_right_edge = on_right_edge;
+
+	for (int i = 0; i < NUM_ADJ_GRID; ++i)
+		emf->gaspi_notif[i] = 0;
+
 }
 
 void emf_delete(t_emf *emf)
@@ -500,41 +504,41 @@ void emf_comm_wait(t_emf *emf)
 
 void emf_wait_comm_x(t_emf *emf, const int region_id, const int notif_mod)
 {
-	int id, value;
-
 	if (notif_mod == NOTIF_ID_EMF_ACK && emf->iter == 1) return;
 
-	id = NOTIFICATION_ID(GRID_LEFT, region_id, notif_mod);
-	CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &value));
+	if (!emf->moving_window || !emf->on_left_edge)
+	{
+		int id = NOTIFICATION_ID(GRID_LEFT, region_id, notif_mod);
+		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &emf->gaspi_notif[GRID_LEFT]));
+	}
 
-	id = NOTIFICATION_ID(GRID_RIGHT, region_id, notif_mod);
-	CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &value));
+	if (!emf->moving_window || !emf->on_right_edge)
+	{
+		int id = NOTIFICATION_ID(GRID_RIGHT, region_id, notif_mod);
+		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &emf->gaspi_notif[GRID_RIGHT]));
+	}
 }
 
 void emf_wait_comm_y(t_emf *emf, const int notif_mod)
 {
-	int id, value;
-
 	if (notif_mod == NOTIF_ID_EMF_ACK && emf->iter == 1) return;
 
 	if (emf->gaspi_segm_offset_send[GRID_DOWN] >= 0)
 	{
-		id = NOTIFICATION_ID(GRID_DOWN, 0, notif_mod);
-		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &value));
+		int id = NOTIFICATION_ID(GRID_DOWN, 0, notif_mod);
+		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &emf->gaspi_notif[GRID_DOWN]));
 	}
 
 	if (emf->gaspi_segm_offset_send[GRID_UP] >= 0)
 	{
-		id = NOTIFICATION_ID(GRID_UP, 0, notif_mod);
-		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &value));
+		int id = NOTIFICATION_ID(GRID_UP, 0, notif_mod);
+		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &emf->gaspi_notif[GRID_UP]));
 	}
 }
 
 void emf_send_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks[NUM_ADJ_GRID])
 {
 	const unsigned int queue = get_gaspi_queue(region_id);
-	int notif_id;
-	gaspi_notification_t value;
 
 	t_vfld *restrict E = emf->E;
 	t_vfld *restrict B = emf->B;
@@ -545,6 +549,10 @@ void emf_send_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks
 
 	const int nrow = emf->nrow;
 	const int segm_nrow = emf->gc[0][0] + emf->gc[0][1];
+
+	const int notif_id[4] = {0, NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_EMF_ACK),
+	                         NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_EMF_ACK), 0};
+	check_notif_value(notif_id, emf->gaspi_notif, COMM_EMF_ACK);
 
 	if (!emf->moving_window || !emf->on_left_edge)
 	{
@@ -621,6 +629,10 @@ void emf_update_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ran
 	t_vfld *restrict E_right = emf->receive_E[GRID_RIGHT];
 	t_vfld *restrict B_right = emf->receive_B[GRID_RIGHT];
 
+	const int notif_id[4] = {0, NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_EMF),
+	                         NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_EMF), 0};
+	check_notif_value(notif_id, emf->gaspi_notif, COMM_EMF_WRITE);
+
 	if (emf->moving_window && emf->shift_window_iter)
 	{
 		if (!emf->on_right_edge)
@@ -658,13 +670,22 @@ void emf_update_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ran
 		}
 	}
 
-	int notif_id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_EMF_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(B_SEGMENT_ID, adj_ranks[GRID_RIGHT], notif_id, COMM_EMF_ACK,
-	                               queue));
+	gaspi_rank_t rank;
+	gaspi_proc_rank(&rank);
 
-	notif_id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_EMF_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(B_SEGMENT_ID, adj_ranks[GRID_LEFT], notif_id, COMM_EMF_ACK,
-	                               queue));
+	if (!emf->moving_window || !emf->on_right_edge)
+	{
+		int notif_id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_EMF_ACK);
+		CHECK_GASPI_ERROR(tagaspi_notify(B_SEGMENT_ID, adj_ranks[GRID_RIGHT], notif_id, COMM_EMF_ACK,
+									   queue));
+	}
+
+	if (!emf->moving_window || !emf->on_left_edge)
+	{
+		int notif_id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_EMF_ACK);
+		CHECK_GASPI_ERROR(tagaspi_notify(B_SEGMENT_ID, adj_ranks[GRID_LEFT], notif_id, COMM_EMF_ACK,
+									   queue));
+	}
 }
 
 void emf_send_gc_y(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks[NUM_ADJ_GRID])
@@ -674,6 +695,10 @@ void emf_send_gc_y(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks
 
 	int remote_offset;
 	const int nrow = emf->nrow;
+
+	const int notif_id[4] = {NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_EMF), 0,
+	                         0, NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_EMF)};
+	check_notif_value(notif_id, emf->gaspi_notif, COMM_EMF_ACK);
 
 	if (emf->gaspi_segm_offset_send[GRID_DOWN] >= 0)
 	{
@@ -742,6 +767,10 @@ void emf_update_gc_y(t_emf *emf, const int region_id, const gaspi_rank_t adj_ran
 	t_vfld *restrict B_down = emf->receive_B[GRID_DOWN];
 
 	const int nrow = emf->nrow;
+
+	const int notif_id[4] = {NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_EMF), 0,
+	                         0, NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_EMF)};
+	check_notif_value(notif_id, emf->gaspi_notif, COMM_EMF_WRITE);
 
 	memcpy(E, E_down, emf->gc[1][0] * nrow * sizeof(t_vfld));
 	memcpy(B, B_down, emf->gc[1][0] * nrow * sizeof(t_vfld));

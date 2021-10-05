@@ -77,19 +77,21 @@ void realloc_vector(void **restrict ptr, const int old_size, const int new_size,
 	}
 }
 
-bool gaspi_notify_test(const gaspi_segment_id_t segm_id, const gaspi_notification_id_t notif_id)
+void check_notif_value(int notif_id[4], int recv_notif[4], const int target_notif)
 {
-	gaspi_notification_id_t id;
-	return (gaspi_notify_waitsome(segm_id, notif_id, 1, &id, GASPI_TEST) == GASPI_SUCCESS);
-}
+	for (int i = 0; i < 4; ++i)
+    {
+		if (recv_notif[i] > 0)
+		{
+			if (recv_notif[i] != target_notif)
+			{
+				fprintf(stderr, "Notification ID: %d. Received: %d. Expected: %d\n", notif_id[i],
+				        recv_notif[i], target_notif);
+			}
 
-void gaspi_recv(const gaspi_segment_id_t segm_id, const int notif_ids[8])
-{
-	gaspi_notification_t value;
-
-	for (int i = 0; i < 8; ++i)
-		if(notif_ids[i] >= 0)
-			CHECK_GASPI_ERROR(tagaspi_notify_async_wait(segm_id, notif_ids[i], &value));
+			recv_notif[i] = 0;
+		}
+    }
 }
 
 // Get a gaspi queue from the pool
@@ -106,10 +108,4 @@ unsigned int get_gaspi_queue(const unsigned int region_id)
 		CHECK_GASPI_ERROR(gaspi_wait(queue, GASPI_BLOCK));
 
 	return queue;
-}
-
-void gaspi_flush_all_queues()
-{
-	for (int queue = 0; queue < NUM_GASPI_QUEUES; ++queue)
-		CHECK_GASPI_ERROR(gaspi_wait(queue, GASPI_BLOCK));
 }

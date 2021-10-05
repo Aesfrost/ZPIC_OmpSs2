@@ -1,6 +1,6 @@
 # GCC options
 CC = mcc
-CFLAGS = -std=c99 -Wall -O3 -g --ompss-2 -K
+CFLAGS = -std=c99 -Wall -O3 -g --ompss-2
 
 GPI2_HOME = /home/nicolas/gaspi
 TAGASPI_HOME = /home/nicolas/tagaspi

@@ -128,9 +128,7 @@ enum gaspi_comm_codes {
 void get_optimal_division(int *div, int n);
 void realloc_vector(void **restrict ptr, const int old_size, const int new_size, const size_t type_size);
 
-void gaspi_recv(const gaspi_segment_id_t segm_id, const int notif_id[8]);
 unsigned int get_gaspi_queue(const unsigned int region_id);
-void gaspi_flush_all_queues();
-bool gaspi_notify_test(const gaspi_segment_id_t segm_id, const gaspi_notification_id_t notif_id);
+void check_notif_value(int notif_id[4], int recv_notif[4], const int target_notif);
 
 #endif /* _UTILITIES_H_ */

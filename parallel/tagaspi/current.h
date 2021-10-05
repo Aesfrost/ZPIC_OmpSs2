@@ -41,6 +41,8 @@ typedef struct {
 	int gaspi_segm_offset_send[NUM_ADJ_GRID];
 	int gaspi_remote_offset_send[NUM_ADJ_GRID];
 
+	int gaspi_notif[NUM_ADJ_GRID];
+
 	bool first_comm;
 	bool on_right_edge;
 	bool on_left_edge;

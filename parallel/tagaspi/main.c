@@ -36,11 +36,11 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-//#include "input/lwfa-4000-16M-2000-512.c"
+#include "input/lwfa-4000-16M-2000-512.c"
 //#include "input/lwfa-8000-32M-4000-2048.c"
 // #include "input/weibel-1000-604M-4096-4096.c"
 //#include "input/weibel-1000-151M-2048-2048.c"
- #include "input/weibel-500-4M-512-512.c"
+// #include "input/weibel-500-4M-512-512.c"
 
 #pragma oss assert("version.dependencies==regions")
 

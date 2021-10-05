@@ -71,6 +71,9 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt, bool on_ri
 
 	current->on_left_edge = on_left_edge;
 	current->on_right_edge = on_right_edge;
+
+	for (int i = 0; i < 4; ++i)
+		current->gaspi_notif[i] = 0;
 }
 
 void current_delete(t_current *current)
@@ -83,6 +86,7 @@ void current_delete(t_current *current)
 void current_zero(t_current *current)
 {
 	current->iter++;
+	printf("Iter: %d\n", current->iter);
 
 	// zero fields
 	size_t size = current->nrow * current->ncol;
@@ -175,40 +179,36 @@ void current_comm_wait(t_current *current)
 
 void current_wait_comm_x(t_current *current, const int region_id, const int notif_mod)
 {
-	int id, value;
-
 	if (!current->first_comm)
 	{
 		if (!current->moving_window || !current->on_left_edge)
 		{
-			id = NOTIFICATION_ID(GRID_LEFT, region_id, notif_mod);
-			CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &value));
+			int id = NOTIFICATION_ID(GRID_LEFT, region_id, notif_mod);
+			CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &current->gaspi_notif[GRID_LEFT]));
 		}
 
 		if (!current->moving_window || !current->on_right_edge)
 		{
-			id = NOTIFICATION_ID(GRID_RIGHT, region_id, notif_mod);
-			CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &value));
+			int id = NOTIFICATION_ID(GRID_RIGHT, region_id, notif_mod);
+			CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &current->gaspi_notif[GRID_RIGHT]));
 		}
 	}
 }
 
 void current_wait_comm_y(t_current *current, const int notif_mod)
 {
-	int id, value;
-
 	if (notif_mod == NOTIF_ID_CURRENT_ACK && current->iter == 1) return;
 
 	if (current->gaspi_segm_offset_send[GRID_UP] >= 0)
 	{
-		id = NOTIFICATION_ID(GRID_UP, 0, notif_mod);
-		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &value));
+		int id = NOTIFICATION_ID(GRID_UP, 0, notif_mod);
+		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &current->gaspi_notif[GRID_UP]));
 	}
 
 	if (current->gaspi_segm_offset_send[GRID_DOWN] >= 0)
 	{
-		id = NOTIFICATION_ID(GRID_DOWN, 0, notif_mod);
-		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &value));
+		int id = NOTIFICATION_ID(GRID_DOWN, 0, notif_mod);
+		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &current->gaspi_notif[GRID_DOWN]));
 	}
 }
 
@@ -225,7 +225,9 @@ void current_send_gc_x(t_current *current, const int region_id, const gaspi_rank
 	int msg_size = segm_nrow * current->ncol;
 	int offset_base = -current->gc[1][0] * segm_nrow;
 
-	current->first_comm = false;
+	const int notif_id[4] = {0, NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK),
+	                         NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK), 0};
+	check_notif_value(notif_id, current->gaspi_notif, COMM_CURRENT_ACK);
 
 	if (!current->moving_window || !current->on_left_edge)
 	{
@@ -268,6 +270,8 @@ void current_send_gc_x(t_current *current, const int region_id, const gaspi_rank
 		        COMM_CURRENT_WRITE,							// Notification value
 		        queue));									// Queue
 	}
+
+	current->first_comm = false;
 }
 
 void current_reduction_x(t_current *current, const int region_id, gaspi_rank_t adj_ranks[4])
@@ -281,6 +285,10 @@ void current_reduction_x(t_current *current, const int region_id, gaspi_rank_t a
 	t_vfld *restrict J_left = current->receive_J[GRID_LEFT];
 	t_vfld *restrict J_right = current->receive_J[GRID_RIGHT];
 
+	const int notif_id[4] = {0, NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT),
+	                         NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT), 0};
+	check_notif_value(notif_id, current->gaspi_notif, COMM_CURRENT_WRITE);
+
 	if (!current->moving_window || !current->on_left_edge)
 	{
 		for (int j = -current->gc[1][0]; j < current->nx[1] + current->gc[1][1]; ++j)
@@ -292,6 +300,10 @@ void current_reduction_x(t_current *current, const int region_id, gaspi_rank_t a
 				J[i + j * nrow].z += J_left[i + current->gc[0][0] + j * segm_nrow].z;
 			}
 		}
+
+		int notif_id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK);
+		CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_LEFT], notif_id, COMM_CURRENT_ACK,
+		                               queue));
 	}
 
 	if (!current->moving_window || !current->on_right_edge)
@@ -305,15 +317,11 @@ void current_reduction_x(t_current *current, const int region_id, gaspi_rank_t a
 				J[current->nx[0] + i + j * nrow].z += J_right[i + current->gc[0][0] + j * segm_nrow].z;
 			}
 		}
+
+		int notif_id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK);
+		CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_RIGHT], notif_id, COMM_CURRENT_ACK,
+		                               queue));
 	}
-
-	int notif_id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_RIGHT], notif_id, COMM_CURRENT_ACK,
-	                               queue));
-
-	notif_id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_LEFT], notif_id, COMM_CURRENT_ACK,
-	                               queue));
 }
 
 void current_update_gc_x(t_current *current, const int region_id, gaspi_rank_t adj_ranks[4])
@@ -327,23 +335,31 @@ void current_update_gc_x(t_current *current, const int region_id, gaspi_rank_t a
 	t_vfld *restrict J_left = current->receive_J[GRID_LEFT];
 	t_vfld *restrict J_right = current->receive_J[GRID_RIGHT];
 
+	const int notif_id[4] = {0, NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT),
+	                         NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT), 0};
+	check_notif_value(notif_id, current->gaspi_notif, COMM_CURRENT_WRITE);
+
 	if (!(current->moving_window && current->on_left_edge))
+	{
 		for (int j = -current->gc[1][0]; j < current->nx[1] + current->gc[1][1]; ++j)
 			for (int i = -current->gc[0][0]; i < 0; ++i)
 				J[i + j * nrow] = J_left[i + current->gc[0][0] + j * segm_nrow];
 
+		int notif_id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK);
+		CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_LEFT], notif_id, COMM_CURRENT_ACK,
+		                               queue));
+	}
+
 	if (!(current->moving_window && current->on_right_edge))
+	{
 		for (int j = -current->gc[1][0]; j < current->nx[1] + current->gc[1][1]; ++j)
 			for (int i = 0; i < current->gc[0][1]; ++i)
 				J[current->nx[0] + i + j * nrow] = J_right[i + current->gc[0][0] + j * segm_nrow];
 
-	int notif_id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_RIGHT], notif_id, COMM_CURRENT_ACK,
-	                               queue));
-
-	notif_id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_LEFT], notif_id, COMM_CURRENT_ACK,
-	                               queue));
+		int notif_id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK);
+		CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_RIGHT], notif_id, COMM_CURRENT_ACK,
+		                               queue));
+	}
 }
 
 
@@ -353,6 +369,10 @@ void current_send_gc_y(t_current *current, const int region_id, const gaspi_rank
 	const int nrow = current->nrow;
 
 	const unsigned int queue = get_gaspi_queue(region_id);
+
+	const int notif_id[4] = {NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_CURRENT_ACK), 0,
+	                         0, NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_CURRENT_ACK)};
+	check_notif_value(notif_id, current->gaspi_notif, COMM_CURRENT_ACK);
 
 	if (current->gaspi_segm_offset_send[GRID_DOWN] >= 0)
 	{
@@ -396,6 +416,10 @@ void current_reduction_y(t_current *current, const int region_id, const gaspi_ra
 	const int nrow = current->nrow;
 	t_vfld *restrict const J = current->J_buf;
 	t_vfld *restrict const J_down = current->receive_J[GRID_DOWN];
+
+	const int notif_id[4] = {NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_CURRENT), 0,
+	                         0, NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_CURRENT)};
+	check_notif_value(notif_id, current->gaspi_notif, COMM_CURRENT_WRITE);
 
 	for (int j = 0; j < current->gc[1][0] + current->gc[1][1]; j++)
 	{

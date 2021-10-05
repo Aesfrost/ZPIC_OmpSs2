@@ -477,27 +477,6 @@ void sim_iter(t_simulation *sim)
 		}
 	}
 
-//		if (filter.ytype != NONE)
-//		{
-//			for (int k = 0; k < filter.ylevel; k++)
-//			{
-//				for(int i = 0; i < n_regions; i++)
-//					current_smooth_y(&regions[i].local_current, BINOMIAL);
-//
-//				for(int i = 0; i < n_regions; i++)
-//					current_gc_update_y(&regions[i].local_current);
-//			}
-//
-//			if (filter.ytype == COMPENSATED)
-//			{
-//				for(int i = 0; i < n_regions; i++)
-//					current_smooth_y(&regions[i].local_current, COMPENSATED);
-//
-//				for(int i = 0; i < n_regions; i++)
-//					current_gc_update_y(&regions[i].local_current);
-//			}
-//		}
-
 	for (int i = 0; i < n_regions; i++)
 	{
 		emf_advance(&regions[i].local_emf, &regions[i].local_current);
