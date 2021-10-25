@@ -272,7 +272,7 @@ void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1)
 	fprintf(stdout, "\n");
 
 #else
-	printf("%s,%d,%d,%f,%lf\n", sim->name, n_regions, n_threads, sim_time, npart / sim_time / 10E6);
+	printf("%s,%d,%d,%f,%lf\n", sim->name, sim->n_regions, n_threads, sim_time, npart / sim_time / 10E6);
 #endif
 }
 

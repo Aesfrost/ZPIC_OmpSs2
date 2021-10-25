@@ -23,9 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <GASPI.h>
-#include <TAGASPI.h>
-#include <mpi/mpi.h>
-
+#include <mpi.h>
 
 #include "zpic.h"
 #include "utilities.h"
@@ -39,8 +37,8 @@
 #include "input/lwfa-4000-16M-2000-512.c"
 //#include "input/lwfa-8000-32M-4000-2048.c"
 // #include "input/weibel-1000-604M-4096-4096.c"
-//#include "input/weibel-1000-151M-2048-2048.c"
-// #include "input/weibel-500-4M-512-512.c"
+// #include "input/weibel-1000-151M-2048-2048.c"
+//#include "input/weibel-500-4M-512-512.c"
 
 #pragma oss assert("version.dependencies==regions")
 
@@ -53,7 +51,7 @@ int main(int argc, const char *argv[])
 	}
 
 	MPI_Init(&argc, &argv);
-	CHECK_GASPI_ERROR(tagaspi_proc_init(GASPI_BLOCK));
+	CHECK_GASPI_ERROR(gaspi_proc_init(GASPI_BLOCK));
 
 	// Initialize simulation
 	t_simulation sim;
@@ -79,14 +77,18 @@ int main(int argc, const char *argv[])
 
 		if (report(n, sim.ndump))
 		{
+#ifdef ENABLE_TASKING
 			#pragma oss taskwait
+#endif
  			sim_report(&sim);
 		}
 
 		sim_iter(&sim);
 	}
 
+#ifdef ENABLE_TASKING
 	#pragma oss taskwait
+#endif
 
 	CHECK_GASPI_ERROR(gaspi_barrier(GASPI_GROUP_ALL, GASPI_BLOCK));
 
@@ -103,7 +105,7 @@ int main(int argc, const char *argv[])
 	// Cleanup data
 	sim_delete(&sim);
 
-	CHECK_GASPI_ERROR(tagaspi_proc_term(GASPI_BLOCK));
+	CHECK_GASPI_ERROR(gaspi_proc_term(GASPI_BLOCK));
 	MPI_Finalize();
 
 	return 0;

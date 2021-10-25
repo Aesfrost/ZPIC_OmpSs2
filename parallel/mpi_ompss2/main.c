@@ -22,10 +22,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <GASPI.h>
-#include <TAGASPI.h>
-#include <mpi/mpi.h>
-
 
 #include "zpic.h"
 #include "utilities.h"
@@ -36,11 +32,28 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-#include "input/lwfa-4000-16M-2000-512.c"
+//#include "input/lwfa-4000-16M-2000-512.c"
 //#include "input/lwfa-8000-32M-4000-2048.c"
-// #include "input/weibel-1000-604M-4096-4096.c"
-//#include "input/weibel-1000-151M-2048-2048.c"
-// #include "input/weibel-500-4M-512-512.c"
+//#include "input/weibel-1000-604M-2048-2048.c"
+#include "input/weibel-500-4M-512-512.c"
+
+//#include "input/weak/warm-1n.c"
+//#include "input/weak/warm-4n.c"
+//#include "input/weak/warm-16n.c"
+//#include "input/weak/warm-64n.c"
+//#include "input/weak/warm-256n.c"
+
+// #include "input/weak/weibel-1n.c"
+//#include "input/weak/weibel-4n.c"
+//#include "input/weak/weibel-16n.c"
+//#include "input/weak/weibel-64n.c"
+//#include "input/weak/weibel-256n.c"
+
+//#include "input/weak/cold-1n.c"
+//#include "input/weak/cold-4n.c"
+//#include "input/weak/cold-16n.c"
+//#include "input/weak/cold-64n.c"
+//#include "input/weak/cold-256n.c"
 
 #pragma oss assert("version.dependencies==regions")
 
@@ -52,14 +65,23 @@ int main(int argc, const char *argv[])
 		exit(1);
 	}
 
+#ifdef ENABLE_TASKING
+	int provided;
+	MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+
+	if(provided != MPI_THREAD_MULTIPLE)
+	{
+		fprintf(stderr, "Error: MPI installation doesn't support multithreading\n");
+		exit(1);
+	}
+#else
 	MPI_Init(&argc, &argv);
-	CHECK_GASPI_ERROR(tagaspi_proc_init(GASPI_BLOCK));
+#endif
 
 	// Initialize simulation
 	t_simulation sim;
 	sim_init(&sim, atoi(argv[1]));
-
-	CHECK_GASPI_ERROR(gaspi_barrier(GASPI_GROUP_ALL, GASPI_BLOCK));
+	CHECK_MPI_ERROR(MPI_Barrier(MPI_COMM_WORLD));
 
 	// Run simulation
 	int n;
@@ -79,16 +101,20 @@ int main(int argc, const char *argv[])
 
 		if (report(n, sim.ndump))
 		{
+#ifdef ENABLE_TASKING
 			#pragma oss taskwait
- 			sim_report(&sim);
+#endif
+			sim_report(&sim);
 		}
 
 		sim_iter(&sim);
 	}
 
+#ifdef ENABLE_TASKING
 	#pragma oss taskwait
+#endif
 
-	CHECK_GASPI_ERROR(gaspi_barrier(GASPI_GROUP_ALL, GASPI_BLOCK));
+	CHECK_MPI_ERROR(MPI_Barrier(MPI_COMM_WORLD));
 
 	if(sim.proc_rank == ROOT)
 	{
@@ -102,8 +128,6 @@ int main(int argc, const char *argv[])
 
 	// Cleanup data
 	sim_delete(&sim);
-
-	CHECK_GASPI_ERROR(tagaspi_proc_term(GASPI_BLOCK));
 	MPI_Finalize();
 
 	return 0;

@@ -12,12 +12,12 @@
 void sim_init(t_simulation *sim, int n_regions)
 {
 	// Time step
-	float dt = 0.009;
-	float tmax = 36;
+	float dt = 0.014;
+	float tmax = 28;  //20.314;
 
 	// Simulation box
-	int nx[2] = {2000, 512};
-	float box[2] = {20.0, 25.6};
+	int nx[2] = {2000, 256};
+	float box[2] = {40.0, 51.2};
 
 	// Diagnostic frequency
 	int ndump = 1000;
@@ -25,8 +25,8 @@ void sim_init(t_simulation *sim, int n_regions)
 	// Initialize particles
 	const int n_species = 1;
 
-	// Use 4x4 particles per cell
-	int ppc[] = {4, 4};
+	// Use 4x2 particles per cell
+	int ppc[] = {4, 2};
 
 	// Density profile
 	t_density density = {.type = STEP, .start = 20.0};
@@ -35,11 +35,11 @@ void sim_init(t_simulation *sim, int n_regions)
 	spec_new(&species[0], "electrons", -1.0, ppc, NULL, NULL, nx, box, dt, &density);
 
 	// Initialize Simulation data
-	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa-4000-16M-2000-512", n_regions);
+	sim_new(sim, nx, box, dt, tmax, ndump, species, n_species, "lwfa-2000-4M-2000-256", n_regions);
 
 	// Add laser pulse (this must come after sim_new)
 	t_emf_laser laser = {.type = GAUSSIAN, .start = 17.0, .fwhm = 2.0, .a0 = 2.0, .omega0 = 10.0, .W0 = 4.0,
-							.focus = 20.0, .axis = 12.8, .polarization = M_PI_2};
+			.focus = 20.0, .axis = 12.8, .polarization = M_PI_2};
 	sim_add_laser(sim, &laser);
 
 	// Set moving window (this must come after sim_new)
@@ -71,7 +71,8 @@ void sim_report(t_simulation *sim)
 	sim_report_spec_zdf(sim, 0, CHARGE, NULL, NULL);
 
 	// x1u1 phasespace
-	const int pha_nx[] = { 1024, 512 };
-	const float pha_range[][2] = { { 0.0, 20.0 }, { -2.0, +2.0 } };
+	const int pha_nx[] = {1024, 512};
+	const float pha_range[][2] = { {0.0, 20.0}, {-2.0, +2.0}};
 	sim_report_spec_zdf(sim, 0, PHASESPACE(X1, U1), pha_nx, pha_range);
+
 }

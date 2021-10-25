@@ -1,19 +1,24 @@
 # GCC options
-CC = mcc
-CFLAGS = -std=c99 -Wall -O3 -g --ompss-2
+CC = gcc
+CFLAGS = -std=c99 -Wall -O3 -g -fopenmp
 
-GPI2_HOME = /home/nicolas/gaspi
-TAGASPI_HOME = /home/nicolas/tagaspi
+GPI2_HOME = /home/nicolas/gaspi_original
 # GPI2_HOME = /home/bsc85/bsc85186/gaspi/install/
-INCLUDES = -I$(GPI2_HOME)/include -I$(TAGASPI_HOME)/include
+INCLUDES = -I$(GPI2_HOME)/include
 
 LDFLAGS = -lm
-LDFLAGS += -L$(GPI2_HOME)/lib64 -L$(TAGASPI_HOME)/lib/ -ltagaspi -lnuma -lstdc++ -lGPI2 -lpthread -lrt -libverbs
+LDFLAGS += -L$(GPI2_HOME)/lib64 -lGPI2
 
-SOURCE = current.c emf.c particles.c random.c timer.c main.c simulation.c zdf.c region.c utilities.c
+SOURCE = current.c emf.c particles.c random.c timer.c main.c simulation.c zdf.c region.c utilities.c task_management.c
 TARGET = zpic
 
 all : $(TARGET)
+
+tasking : CC = mcc
+tasking : INCLUDES += -I/home/nicolas/ompss-2/include
+tasking : LDFLAGS += -L/home/nicolas/ompss-2/lib -lnanos6 
+tasking : CFLAGS += -DENABLE_TASKING --ompss-2 
+tasking : $(TARGET)
 
 valgrind: $(SOURCE)
 	mpicc $^ $(CFLAGS) -o $(TARGET) $(INCLUDES) $(LDFLAGS)
@@ -33,4 +38,4 @@ $(TARGET) : $(SOURCE:.c=.o)
 
 clean:
 	@touch $(TARGET) 
-	rm -f $(TARGET) *.o .gpi2.* mcc_* machine_* *_r*_t1
+	rm -f $(TARGET) *.o .gpi2.* mcc_* machine_*

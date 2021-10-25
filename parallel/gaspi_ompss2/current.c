@@ -17,6 +17,7 @@
 
 #include "utilities.h"
 #include "zdf.h"
+#include "task_management.h"
 
 /*********************************************************************************************
  Constructor / Destructor
@@ -71,9 +72,6 @@ void current_new(t_current *current, int nx[], t_fld box[], float dt, bool on_ri
 
 	current->on_left_edge = on_left_edge;
 	current->on_right_edge = on_right_edge;
-
-	for (int i = 0; i < 4; ++i)
-		current->gaspi_notif[i] = 0;
 }
 
 void current_delete(t_current *current)
@@ -107,6 +105,8 @@ void current_link_adj_regions(t_current *current, t_current *current_down, t_cur
 	// Offset to the beginning of the region (remember that region limits are in global coordinates)
 	const int offset_y = segm_nrow * (current->gc[1][0] + region_id * segm_ncol
 					   + (region_limits[1][0] - proc_limits[1][0]));
+
+	CHECK_GASPI_ERROR(gaspi_wait(DEFAULT_QUEUE, GASPI_BLOCK));
 
 	for (int dir = 0; dir < 4; dir++)
 	{
@@ -155,70 +155,43 @@ void current_link_adj_regions(t_current *current, t_current *current_down, t_cur
 			current->send_J[dir] = &gaspi_segm_J[current->gaspi_segm_offset_send[dir]];
 			current->receive_J[dir] = &gaspi_segm_J[current->gaspi_segm_offset_recv[dir]];
 
-			MPI_Isend(&current->gaspi_segm_offset_recv[dir], 1, MPI_INT, adj_ranks[dir], notif_id,
-			          MPI_COMM_WORLD, &current->requests[2 * dir]);
-
-			if (dir == GRID_LEFT || dir == GRID_RIGHT) notif_id = NOTIFICATION_ID(dir, region_id, 0);
-			else notif_id = NOTIFICATION_ID(dir, 0, 0);
-
-			MPI_Irecv(&current->gaspi_remote_offset_send[dir], 1, MPI_INT, adj_ranks[dir], notif_id,
-			          MPI_COMM_WORLD, &current->requests[2 * dir + 1]);
-		}else
-		{
-			current->requests[2 * dir] = MPI_REQUEST_NULL;
-			current->requests[2 * dir + 1] = MPI_REQUEST_NULL;
+			CHECK_GASPI_ERROR(gaspi_notify(J_SEGMENT_ID, adj_ranks[dir], notif_id,
+			                  current->gaspi_segm_offset_recv[dir] + COMM_CURRENT_PING,
+							  DEFAULT_QUEUE, GASPI_BLOCK));
 		}
 	}
 }
 
-void current_comm_wait(t_current *current)
+void current_add_remote_offset(t_current *current, const int region_id, const bool first_region,
+                               const bool last_region)
 {
-	MPI_Waitall(2 * NUM_ADJ_GRID, current->requests, MPI_STATUSES_IGNORE);
-}
-
-void current_wait_comm_x(t_current *current, const int region_id, const int notif_mod)
-{
-	if (!current->first_comm)
+	for (int dir = 0; dir < 4; ++dir)
 	{
-		if (notif_mod == NOTIF_ID_CURRENT_ACK)
+		int notif_id = -1;
+		gaspi_notification_id_t id;
+		gaspi_notification_t value;
+
+		switch (dir)
 		{
-			int id = NOTIFICATION_ID(GRID_LEFT, region_id, notif_mod);
-			CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &current->gaspi_notif[GRID_LEFT]));
+			case GRID_DOWN:
+				if (first_region) notif_id = NOTIFICATION_ID(GRID_DOWN, 0, 0);
+				break;
 
-			id = NOTIFICATION_ID(GRID_RIGHT, region_id, notif_mod);
-			CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &current->gaspi_notif[GRID_RIGHT]));
+			case GRID_UP:
+				if (last_region) notif_id = NOTIFICATION_ID(GRID_UP, 0, 0);
+				break;
 
-		} else
-		{
-			if (!current->moving_window || !current->on_left_edge)
-			{
-				int id = NOTIFICATION_ID(GRID_LEFT, region_id, notif_mod);
-				CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &current->gaspi_notif[GRID_LEFT]));
-			}
-
-			if (!current->moving_window || !current->on_right_edge)
-			{
-				int id = NOTIFICATION_ID(GRID_RIGHT, region_id, notif_mod);
-				CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &current->gaspi_notif[GRID_RIGHT]));
-			}
+			default:   // GRID_LEFT or GRID_RIGHT
+				notif_id = NOTIFICATION_ID(dir, region_id, 0);
+				break;
 		}
-	}
-}
 
-void current_wait_comm_y(t_current *current, const int notif_mod)
-{
-	if (notif_mod == NOTIF_ID_CURRENT_ACK && current->iter == 1) return;
-
-	if (current->gaspi_segm_offset_send[GRID_UP] >= 0)
-	{
-		int id = NOTIFICATION_ID(GRID_UP, 0, notif_mod);
-		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &current->gaspi_notif[GRID_UP]));
-	}
-
-	if (current->gaspi_segm_offset_send[GRID_DOWN] >= 0)
-	{
-		int id = NOTIFICATION_ID(GRID_DOWN, 0, notif_mod);
-		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(J_SEGMENT_ID, id, &current->gaspi_notif[GRID_DOWN]));
+		if (notif_id >= 0)
+		{
+			CHECK_GASPI_ERROR(gaspi_notify_waitsome(J_SEGMENT_ID, notif_id, 1, &id, GASPI_BLOCK));
+			CHECK_GASPI_ERROR(gaspi_notify_reset(J_SEGMENT_ID, id, &value));
+			current->gaspi_remote_offset_send[dir] = value - COMM_CURRENT_PING;
+		} else current->gaspi_remote_offset_send[dir] = -1;
 	}
 }
 
@@ -235,9 +208,16 @@ void current_send_gc_x(t_current *current, const int region_id, const gaspi_rank
 	int msg_size = segm_nrow * current->ncol;
 	int offset_base = -current->gc[1][0] * segm_nrow;
 
-	const int notif_id[4] = {0, NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK),
-	                         NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK), 0};
-	check_notif_value(notif_id, current->gaspi_notif, COMM_CURRENT_ACK);
+	if (!current->first_comm)
+	{
+		int notif_ids[8];
+		for (int i = 0; i < 8; ++i)
+			notif_ids[i] = -1;
+
+		notif_ids[GRID_LEFT] = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK);
+		notif_ids[GRID_RIGHT] = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK);
+		gaspi_recv(J_SEGMENT_ID, notif_ids, COMM_CURRENT_ACK);
+	}
 
 	if (!current->moving_window || !current->on_left_edge)
 	{
@@ -249,7 +229,7 @@ void current_send_gc_x(t_current *current, const int region_id, const gaspi_rank
 			for (int i = -current->gc[0][0]; i < current->gc[0][1]; ++i)
 				J_left[i + current->gc[0][0] + j * segm_nrow] = J[i + j * nrow];
 
-		CHECK_GASPI_ERROR(tagaspi_write_notify(J_SEGMENT_ID, 	// Local segment ID
+		CHECK_GASPI_ERROR(gaspi_write_notify(J_SEGMENT_ID, 	// Local segment ID
 		        local_offset * sizeof(t_vfld),				// Local segment offset
 		        adj_ranks[GRID_LEFT],						// Rank of the receiving process
 		        J_SEGMENT_ID,								// Remote segment ID
@@ -257,7 +237,8 @@ void current_send_gc_x(t_current *current, const int region_id, const gaspi_rank
 		        msg_size * sizeof(t_vfld),					// Size
 		        notif_id,									// Notification ID
 		        COMM_CURRENT_WRITE,							// Notification value
-		        queue));									// Queue
+		        queue,										// Queue
+		        GASPI_BLOCK));								// Timeout in ms
 	}
 
 	if (!current->moving_window || !current->on_right_edge)
@@ -270,7 +251,7 @@ void current_send_gc_x(t_current *current, const int region_id, const gaspi_rank
 			for (int i = -current->gc[0][0]; i < current->gc[0][1]; ++i)
 				J_right[i + current->gc[0][0] + j * segm_nrow] = J[current->nx[0] + i + j * nrow];
 
-		CHECK_GASPI_ERROR(tagaspi_write_notify(J_SEGMENT_ID, 	// Local segment ID
+		CHECK_GASPI_ERROR(gaspi_write_notify(J_SEGMENT_ID, 	// Local segment ID
 		        local_offset * sizeof(t_vfld),				// Local segment offset
 		        adj_ranks[GRID_RIGHT],						// Rank of the receiving process
 		        J_SEGMENT_ID,								// Remote segment ID
@@ -278,10 +259,9 @@ void current_send_gc_x(t_current *current, const int region_id, const gaspi_rank
 		        msg_size * sizeof(t_vfld),					// Size
 		        notif_id,									// Notification ID
 		        COMM_CURRENT_WRITE,							// Notification value
-		        queue));									// Queue
+		        queue,										// Queue
+		        GASPI_BLOCK));								// Timeout in ms
 	}
-
-	current->first_comm = false;
 }
 
 void current_reduction_x(t_current *current, const int region_id, gaspi_rank_t adj_ranks[4])
@@ -295,9 +275,17 @@ void current_reduction_x(t_current *current, const int region_id, gaspi_rank_t a
 	t_vfld *restrict J_left = current->receive_J[GRID_LEFT];
 	t_vfld *restrict J_right = current->receive_J[GRID_RIGHT];
 
-	const int notif_id[4] = {0, NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT),
-	                         NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT), 0};
-	check_notif_value(notif_id, current->gaspi_notif, COMM_CURRENT_WRITE);
+	int notif_ids[8];
+	for (int i = 0; i < 8; ++i)
+		notif_ids[i] = -1;
+
+	if (!current->moving_window || !current->on_left_edge)
+		notif_ids[GRID_LEFT] = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT);
+
+	if (!current->moving_window || !current->on_right_edge)
+		notif_ids[GRID_RIGHT] = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT);
+
+	gaspi_recv(J_SEGMENT_ID, notif_ids, COMM_CURRENT_WRITE);
 
 	if (!current->moving_window || !current->on_left_edge)
 	{
@@ -325,13 +313,15 @@ void current_reduction_x(t_current *current, const int region_id, gaspi_rank_t a
 		}
 	}
 
-	int id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_LEFT], id, COMM_CURRENT_ACK,
-	                               queue));
+	int notif_id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK);
+	CHECK_GASPI_ERROR(gaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_RIGHT], notif_id, COMM_CURRENT_ACK,
+	                               queue, GASPI_BLOCK));
 
-	id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_RIGHT], id, COMM_CURRENT_ACK,
-	                               queue));
+	notif_id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK);
+	CHECK_GASPI_ERROR(gaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_LEFT], notif_id, COMM_CURRENT_ACK,
+	                               queue, GASPI_BLOCK));
+
+	current->first_comm = false;
 }
 
 void current_update_gc_x(t_current *current, const int region_id, gaspi_rank_t adj_ranks[4])
@@ -345,32 +335,35 @@ void current_update_gc_x(t_current *current, const int region_id, gaspi_rank_t a
 	t_vfld *restrict J_left = current->receive_J[GRID_LEFT];
 	t_vfld *restrict J_right = current->receive_J[GRID_RIGHT];
 
-	const int notif_id[4] = {0, NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT),
-	                         NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT), 0};
-	check_notif_value(notif_id, current->gaspi_notif, COMM_CURRENT_WRITE);
+	int notif_ids[8];
+	for (int i = 0; i < 8; ++i)
+		notif_ids[i] = -1;
+
+	if (!current->moving_window || !current->on_left_edge)
+		notif_ids[GRID_LEFT] = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT);
+
+	if (!current->moving_window || !current->on_right_edge)
+		notif_ids[GRID_RIGHT] = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT);
+
+	gaspi_recv(J_SEGMENT_ID, notif_ids, COMM_CURRENT_WRITE);
 
 	if (!(current->moving_window && current->on_left_edge))
-	{
 		for (int j = -current->gc[1][0]; j < current->nx[1] + current->gc[1][1]; ++j)
 			for (int i = -current->gc[0][0]; i < 0; ++i)
 				J[i + j * nrow] = J_left[i + current->gc[0][0] + j * segm_nrow];
-	}
 
 	if (!(current->moving_window && current->on_right_edge))
-	{
 		for (int j = -current->gc[1][0]; j < current->nx[1] + current->gc[1][1]; ++j)
 			for (int i = 0; i < current->gc[0][1]; ++i)
 				J[current->nx[0] + i + j * nrow] = J_right[i + current->gc[0][0] + j * segm_nrow];
-	}
 
+	int notif_id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK);
+	CHECK_GASPI_ERROR(gaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_RIGHT], notif_id, COMM_CURRENT_ACK,
+	                               queue, GASPI_BLOCK));
 
-	int id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_LEFT], id,
-	                                 COMM_CURRENT_ACK, queue));
-
-	id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_CURRENT_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_RIGHT], id,
-	                                 COMM_CURRENT_ACK,queue));
+	notif_id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_CURRENT_ACK);
+	CHECK_GASPI_ERROR(gaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_LEFT], notif_id, COMM_CURRENT_ACK,
+	                               queue, GASPI_BLOCK));
 }
 
 
@@ -381,24 +374,36 @@ void current_send_gc_y(t_current *current, const int region_id, const gaspi_rank
 
 	const unsigned int queue = get_gaspi_queue(region_id);
 
-	const int notif_id[4] = {NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_CURRENT_ACK), 0,
-	                         0, NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_CURRENT_ACK)};
-	check_notif_value(notif_id, current->gaspi_notif, COMM_CURRENT_ACK);
+	if (current->iter > 1)
+	{
+		int notif_ids[8];
+		for (int i = 0; i < 8; ++i)
+			notif_ids[i] = -1;
+
+		if (current->gaspi_segm_offset_send[GRID_UP] >= 0)
+			notif_ids[GRID_UP] = NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_CURRENT_ACK);
+
+		if (current->gaspi_segm_offset_send[GRID_DOWN] >= 0)
+			notif_ids[GRID_DOWN] = NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_CURRENT_ACK);
+
+		gaspi_recv(J_SEGMENT_ID, notif_ids, COMM_CURRENT_ACK);
+	}
 
 	if (current->gaspi_segm_offset_send[GRID_DOWN] >= 0)
 	{
 		remote_offset = current->gaspi_remote_offset_send[GRID_DOWN];
 		memcpy(current->send_J[GRID_DOWN], current->J_buf, current->overlap_size * sizeof(t_vfld));
 
-		CHECK_GASPI_ERROR(tagaspi_write_notify(J_SEGMENT_ID, 						// Local segment ID
+		CHECK_GASPI_ERROR(gaspi_write_notify(J_SEGMENT_ID, 						// Local segment ID
 		        current->gaspi_segm_offset_send[GRID_DOWN] * sizeof(t_vfld),	// Local segment offset
 		        adj_ranks[GRID_DOWN],											// Rank of the receiving process
 		        J_SEGMENT_ID,													// Remote segment ID
 		        remote_offset * sizeof(t_vfld),									// Remote segment offset
 		        current->overlap_size * sizeof(t_vfld),							// Size
-		        NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_CURRENT),					// Notification ID
+		        NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_CURRENT),									// Notification ID
 		        COMM_CURRENT_WRITE,												// Notification value
-		        queue));														// Queue
+		        queue,															// Queue
+		        GASPI_BLOCK));													// Timeout in ms
 	}
 
 	if (current->gaspi_segm_offset_send[GRID_UP] >= 0)
@@ -407,15 +412,16 @@ void current_send_gc_y(t_current *current, const int region_id, const gaspi_rank
 		memcpy(current->send_J[GRID_UP], current->J_buf + current->nx[1] * nrow,
 		       current->overlap_size * sizeof(t_vfld));
 
-		CHECK_GASPI_ERROR(tagaspi_write_notify(J_SEGMENT_ID, 						// Local segment ID
+		CHECK_GASPI_ERROR(gaspi_write_notify(J_SEGMENT_ID, 						// Local segment ID
 		        current->gaspi_segm_offset_send[GRID_UP] * sizeof(t_vfld),		// Local segment offset
 		        adj_ranks[GRID_UP],												// Rank of the receiving process
 		        J_SEGMENT_ID,													// Remote segment ID
 		        remote_offset * sizeof(t_vfld),									// Remote segment offset
 		        current->overlap_size * sizeof(t_vfld),							// Size
-		        NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_CURRENT),				// Notification ID
+		        NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_CURRENT),								// Notification ID
 		        COMM_CURRENT_WRITE,												// Notification value
-		        queue));														// Queue
+		        queue,															// Queue
+		        GASPI_BLOCK));													// Timeout in ms
 	}
 }
 
@@ -428,9 +434,17 @@ void current_reduction_y(t_current *current, const int region_id, const gaspi_ra
 	t_vfld *restrict const J = current->J_buf;
 	t_vfld *restrict const J_down = current->receive_J[GRID_DOWN];
 
-	const int notif_id[4] = {NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_CURRENT), 0,
-	                         0, NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_CURRENT)};
-	check_notif_value(notif_id, current->gaspi_notif, COMM_CURRENT_WRITE);
+	int notif_ids[8];
+	for (int i = 0; i < 8; ++i)
+		notif_ids[i] = -1;
+
+	if (current->gaspi_segm_offset_recv[GRID_DOWN] >= 0)
+		notif_ids[GRID_DOWN] = NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_CURRENT);
+
+	if (current->gaspi_segm_offset_recv[GRID_UP] >= 0)
+		notif_ids[GRID_UP] = NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_CURRENT);
+
+	gaspi_recv(J_SEGMENT_ID, notif_ids, COMM_CURRENT_WRITE);
 
 	for (int j = 0; j < current->gc[1][0] + current->gc[1][1]; j++)
 	{
@@ -446,9 +460,9 @@ void current_reduction_y(t_current *current, const int region_id, const gaspi_ra
 
 	if (current->gaspi_segm_offset_recv[GRID_DOWN] >= 0)
 	{
-		int id = NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_CURRENT_ACK);
-		CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_DOWN], id,
-		                                 COMM_CURRENT_ACK, queue));
+		int notif_id = NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_CURRENT_ACK);
+		CHECK_GASPI_ERROR(gaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_DOWN], notif_id,
+		                               COMM_CURRENT_ACK, queue, GASPI_BLOCK));
 	}
 
 	if (current->gaspi_segm_offset_recv[GRID_UP] >= 0)
@@ -464,9 +478,9 @@ void current_reduction_y(t_current *current, const int region_id, const gaspi_ra
 			}
 		}
 
-		int id = NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_CURRENT_ACK);
-		CHECK_GASPI_ERROR(tagaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_UP], id,
-		                                  COMM_CURRENT_ACK, queue));
+		int notif_id = NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_CURRENT_ACK);
+		CHECK_GASPI_ERROR(gaspi_notify(J_SEGMENT_ID, adj_ranks[GRID_UP], notif_id,
+		                               COMM_CURRENT_ACK, queue, GASPI_BLOCK));
 	}
 }
 

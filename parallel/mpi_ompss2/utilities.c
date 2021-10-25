@@ -1,4 +1,5 @@
 #include "utilities.h"
+#include "task_management.h"
 
 // Calculate the optimal decomposition of the a number n in Cartesian coordinates
 void get_optimal_division(int *div, int n)
@@ -77,25 +78,18 @@ void realloc_vector(void **restrict ptr, const int old_size, const int new_size,
 	}
 }
 
-void check_notif_value(int notif_id[4], int recv_notif[4], const int target_notif)
+void mpi_wait_async_comm(MPI_Request *requests, const unsigned int num_requests)
 {
-	for (int i = 0; i < 4; ++i)
-    {
-		if (recv_notif[i] > 0)
-		{
-			if (recv_notif[i] != target_notif)
-			{
-				fprintf(stderr, "Notification ID: %d. Received: %d. Expected: %d\n", notif_id[i],
-				        recv_notif[i], target_notif);
-			}
+	if(num_requests > 0 && requests)
+	{
 
-			recv_notif[i] = 0;
-		}
-    }
-}
+#ifdef ENABLE_TASKING
+		int flag;
+		CHECK_MPI_ERROR(MPI_Testall(num_requests, requests, &flag, MPI_STATUSES_IGNORE));
+		if(!flag) block_comm_task(requests, num_requests);
+#else
+		CHECK_MPI_ERROR(MPI_Waitall(num_requests, requests, MPI_STATUSES_IGNORE));
+#endif
 
-// Get a gaspi queue from the pool
-unsigned int get_gaspi_queue(const unsigned int region_id)
-{
-	return region_id % NUM_GASPI_QUEUES;
+	}
 }

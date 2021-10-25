@@ -18,8 +18,10 @@
 #include "emf.h"
 #include "zdf.h"
 #include "timer.h"
+#include "task_management.h"
 
 static double _emf_time = 0.0;
+static MPI_Datatype MPI_VFLD = MPI_DATATYPE_NULL;
 
 double emf_time(void)
 {
@@ -88,9 +90,16 @@ void emf_new(t_emf *emf, int nx[], t_fld box[], const float dt, const bool on_ri
 	emf->on_left_edge = on_left_edge;
 	emf->on_right_edge = on_right_edge;
 
-	for (int i = 0; i < NUM_ADJ_GRID; ++i)
-		emf->gaspi_notif[i] = 0;
+	if(MPI_VFLD == MPI_DATATYPE_NULL)
+	{
+		CHECK_MPI_ERROR(MPI_Type_contiguous(3, MPI_FLOAT, &MPI_VFLD));
+		CHECK_MPI_ERROR(MPI_Type_commit(&MPI_VFLD));
+	}
 
+	// Reset all MPI requests
+	emf->num_mpi_requests = 0;
+	for (int i = 0; i < 8; ++i)
+		emf->mpi_requests[i] = MPI_REQUEST_NULL;
 }
 
 void emf_delete(t_emf *emf)
@@ -100,6 +109,23 @@ void emf_delete(t_emf *emf)
 
 	emf->E_buf = NULL;
 	emf->B_buf = NULL;
+
+	for (int i = 0; i < NUM_ADJ_GRID; ++i)
+	{
+		if(emf->inter_proc_comm[i])
+		{
+			free(emf->send_B[i]);
+			free(emf->receive_B[i]);
+			free(emf->send_E[i]);
+			free(emf->receive_E[i]);
+		}
+	}
+
+	if(MPI_VFLD != MPI_DATATYPE_NULL)
+	{
+		CHECK_MPI_ERROR(MPI_Type_free(&MPI_VFLD));
+		MPI_VFLD = MPI_DATATYPE_NULL;
+	}
 }
 
 /*********************************************************************************************
@@ -416,22 +442,12 @@ double emf_get_energy(t_emf *emf)
  Comunication
  *********************************************************************************************/
 // Set the overlap zone between regions (upper zone only)
-void emf_link_adj_regions(t_emf *emf, t_emf *emf_down, t_emf *emf_up, t_vfld *gaspi_segm_E,
-                          t_vfld *gaspi_segm_B, const int segm_offset[2 * NUM_ADJ_GRID],
-                          const gaspi_rank_t adj_ranks[NUM_ADJ_GRID], const int region_id,
-                          const int region_limits[2][2], const int proc_limits[2][2])
+void emf_link_adj_regions(t_emf *emf, t_emf *emf_down, t_emf *emf_up)
 {
 	const int segm_nrow = emf->gc[0][0] + emf->gc[0][1];
 
-	// Offset to the beginning of the region (remember that region limits are in global coordinates)
-	const int offset_y = segm_nrow * (emf->gc[1][0] + (region_limits[1][0] - proc_limits[1][0]));
-
 	for (int dir = 0; dir < 4; dir++)
 	{
-		int notif_id = -1;
-		emf->gaspi_segm_offset_send[dir] = segm_offset[SEGM_OFFSET_GRID(dir, GASPI_SEND)];
-		emf->gaspi_segm_offset_recv[dir] = segm_offset[SEGM_OFFSET_GRID(dir, GASPI_RECV)];
-
 		switch (dir)
 		{
 			case GRID_DOWN:
@@ -439,120 +455,50 @@ void emf_link_adj_regions(t_emf *emf, t_emf *emf_down, t_emf *emf_up, t_vfld *ga
 				{
 					emf->send_E[dir] = emf_down->E_buf + emf_down->nx[1] * emf_down->nrow;
 					emf->receive_E[dir] = emf->send_E[dir];
-
 					emf->send_B[dir] = emf_down->B_buf + emf_down->nx[1] * emf_down->nrow;
 					emf->receive_B[dir] = emf->send_B[dir];
-
-					emf->gaspi_segm_offset_recv[dir] = -1;   // Local communication
-					emf->gaspi_segm_offset_send[dir] = -1;   // Local communication
-
-				} else notif_id = NOTIFICATION_ID(GRID_UP, 0, 0);
+					emf->inter_proc_comm[dir] = false;
+				}else
+				{
+					emf->send_E[dir] = calloc(emf->overlap_size, sizeof(t_vfld));
+					emf->receive_E[dir] = calloc(emf->overlap_size, sizeof(t_vfld));
+					emf->send_B[dir] = calloc(emf->overlap_size, sizeof(t_vfld));
+					emf->receive_B[dir] = calloc(emf->overlap_size, sizeof(t_vfld));
+					emf->inter_proc_comm[dir] = true;
+				}
 				break;
 
 			case GRID_UP:
 				if (emf_up)   // The adjacent region (upper) is in the same process
 				{
-					// Ghost cells in the left
 					emf->send_E[dir] = emf_up->E_buf;
 					emf->receive_E[dir] = emf->send_E[dir];
-
 					emf->send_B[dir] = emf_up->B_buf;
 					emf->receive_B[dir] = emf->send_B[dir];
-
-					emf->gaspi_segm_offset_recv[dir] = -1;   // Local communication
-					emf->gaspi_segm_offset_send[dir] = -1;   // Local communication
-
-				} else notif_id = NOTIFICATION_ID(GRID_DOWN, 0, 0);
+					emf->inter_proc_comm[dir] = false;
+				}else
+				{
+					emf->send_E[dir] = calloc(emf->overlap_size, sizeof(t_vfld));
+					emf->receive_E[dir] = calloc(emf->overlap_size, sizeof(t_vfld));
+					emf->send_B[dir] = calloc(emf->overlap_size, sizeof(t_vfld));
+					emf->receive_B[dir] = calloc(emf->overlap_size, sizeof(t_vfld));
+					emf->inter_proc_comm[dir] = true;
+				}
 				break;
 
 			default:   // GRID_LEFT or GRID_RIGHT
-
-				emf->gaspi_segm_offset_send[dir] += offset_y;
-				emf->gaspi_segm_offset_recv[dir] += offset_y;
-				notif_id = NOTIFICATION_ID(3 - dir, region_id, 0);
+				emf->send_E[dir] = calloc(segm_nrow * emf->nx[1], sizeof(t_vfld));
+				emf->receive_E[dir] = calloc(segm_nrow * emf->nx[1], sizeof(t_vfld));
+				emf->send_B[dir] = calloc(segm_nrow * emf->nx[1], sizeof(t_vfld));
+				emf->receive_B[dir] = calloc(segm_nrow * emf->nx[1], sizeof(t_vfld));
+				emf->inter_proc_comm[dir] = true;
 				break;
 		}
-
-		if (notif_id >= 0)
-		{
-			emf->send_E[dir] = &gaspi_segm_E[emf->gaspi_segm_offset_send[dir]];
-			emf->send_B[dir] = &gaspi_segm_B[emf->gaspi_segm_offset_send[dir]];
-
-			emf->receive_E[dir] = &gaspi_segm_E[emf->gaspi_segm_offset_recv[dir]];
-			emf->receive_B[dir] = &gaspi_segm_B[emf->gaspi_segm_offset_recv[dir]];
-
-			MPI_Isend(&emf->gaspi_segm_offset_recv[dir], 1, MPI_INT, adj_ranks[dir], notif_id,
-			          MPI_COMM_WORLD, &emf->requests[2 * dir]);
-
-			if (dir == GRID_LEFT || dir == GRID_RIGHT) notif_id = NOTIFICATION_ID(dir, region_id, 0);
-			else notif_id = NOTIFICATION_ID(dir, 0, 0);
-
-			MPI_Irecv(&emf->gaspi_remote_offset_send[dir], 1, MPI_INT, adj_ranks[dir], notif_id,
-			          MPI_COMM_WORLD, &emf->requests[2 * dir + 1]);
-		}else
-		{
-			emf->requests[2 * dir] = MPI_REQUEST_NULL;
-			emf->requests[2 * dir + 1] = MPI_REQUEST_NULL;
-		}
 	}
 }
 
-void emf_comm_wait(t_emf *emf)
+void emf_exchange_gc_x(t_emf *emf, const int region_id, const unsigned int adj_ranks[NUM_ADJ_GRID])
 {
-	MPI_Waitall(2 * NUM_ADJ_GRID, emf->requests, MPI_STATUSES_IGNORE);
-}
-
-void emf_wait_comm_x(t_emf *emf, const int region_id, const int notif_mod)
-{
-	if (notif_mod == NOTIF_ID_EMF_ACK)
-    {
-    	if(emf->iter == 1) return;
-    	else
-    	{
-    		int id = NOTIFICATION_ID(GRID_LEFT, region_id, notif_mod);
-    		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &emf->gaspi_notif[GRID_LEFT]));
-
-    		id = NOTIFICATION_ID(GRID_RIGHT, region_id, notif_mod);
-    		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &emf->gaspi_notif[GRID_RIGHT]));
-    	}
-
-    } else
-    {
-    	if (!emf->moving_window || !emf->on_left_edge)
-    	{
-    		int id = NOTIFICATION_ID(GRID_LEFT, region_id, notif_mod);
-    		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &emf->gaspi_notif[GRID_LEFT]));
-    	}
-
-    	if (!emf->moving_window || !emf->on_right_edge)
-    	{
-    		int id = NOTIFICATION_ID(GRID_RIGHT, region_id, notif_mod);
-    		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &emf->gaspi_notif[GRID_RIGHT]));
-    	}
-    }
-}
-
-void emf_wait_comm_y(t_emf *emf, const int notif_mod)
-{
-	if (notif_mod == NOTIF_ID_EMF_ACK && emf->iter == 1) return;
-
-	if (emf->gaspi_segm_offset_send[GRID_DOWN] >= 0)
-	{
-		int id = NOTIFICATION_ID(GRID_DOWN, 0, notif_mod);
-		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &emf->gaspi_notif[GRID_DOWN]));
-	}
-
-	if (emf->gaspi_segm_offset_send[GRID_UP] >= 0)
-	{
-		int id = NOTIFICATION_ID(GRID_UP, 0, notif_mod);
-		CHECK_GASPI_ERROR(tagaspi_notify_async_wait(B_SEGMENT_ID, id, &emf->gaspi_notif[GRID_UP]));
-	}
-}
-
-void emf_send_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks[NUM_ADJ_GRID])
-{
-	const unsigned int queue = get_gaspi_queue(region_id);
-
 	t_vfld *restrict E = emf->E;
 	t_vfld *restrict B = emf->B;
 	t_vfld *restrict E_left = emf->send_E[GRID_LEFT];
@@ -563,9 +509,9 @@ void emf_send_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks
 	const int nrow = emf->nrow;
 	const int segm_nrow = emf->gc[0][0] + emf->gc[0][1];
 
-	const int notif_id[4] = {0, NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_EMF_ACK),
-	                         NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_EMF_ACK), 0};
-	check_notif_value(notif_id, emf->gaspi_notif, COMM_EMF_ACK);
+	emf->num_mpi_requests = 0;
+	for (int i = 0; i < 8; ++i)
+		emf->mpi_requests[i] = MPI_REQUEST_NULL;
 
 	if (!emf->moving_window || !emf->on_left_edge)
 	{
@@ -578,23 +524,37 @@ void emf_send_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks
 			}
 		}
 
-		CHECK_GASPI_ERROR(tagaspi_write(E_SEGMENT_ID, 							// Local segment ID
-		        emf->gaspi_segm_offset_send[GRID_LEFT] * sizeof(t_vfld),		// Local segment offset
-		        adj_ranks[GRID_LEFT],											// Rank of the receiving process
-		        E_SEGMENT_ID,													// Remote segment ID
-		        emf->gaspi_remote_offset_send[GRID_LEFT] * sizeof(t_vfld),		// Remote segment offset
-		        segm_nrow * emf->nx[1] * sizeof(t_vfld),						// Size
-		        queue));														// Queue
+		CHECK_MPI_ERROR(MPI_Isend(E_left,
+		                          emf->nx[1] * segm_nrow,
+		                          MPI_VFLD,
+		                          adj_ranks[GRID_LEFT],
+		                          CREATE_MPI_TAG(GRID_RIGHT, region_id, MPI_TAG_E),
+		                          MPI_COMM_WORLD,
+		                          &emf->mpi_requests[emf->num_mpi_requests++]));
 
-		CHECK_GASPI_ERROR(tagaspi_write_notify(B_SEGMENT_ID, 						// Local segment ID
-		        emf->gaspi_segm_offset_send[GRID_LEFT] * sizeof(t_vfld),		// Local segment offset
-		        adj_ranks[GRID_LEFT],											// Rank of the receiving process
-		        B_SEGMENT_ID,													// Remote segment ID
-		        emf->gaspi_remote_offset_send[GRID_LEFT] * sizeof(t_vfld),		// Remote segment offset
-		        segm_nrow * emf->nx[1] * sizeof(t_vfld),						// Size
-		        NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_EMF),			// Notification ID
-		        COMM_EMF_WRITE,													// Notification value
-		        queue));														// Queue
+		CHECK_MPI_ERROR(MPI_Isend(B_left,
+		                          emf->nx[1] * segm_nrow,
+		                          MPI_VFLD,
+		                          adj_ranks[GRID_LEFT],
+		                          CREATE_MPI_TAG(GRID_RIGHT, region_id, MPI_TAG_B),
+		                          MPI_COMM_WORLD,
+		                          &emf->mpi_requests[emf->num_mpi_requests++]));
+
+		CHECK_MPI_ERROR(MPI_Irecv(emf->receive_E[GRID_LEFT],
+		                         emf->nx[1] * segm_nrow,
+		                         MPI_VFLD,
+		                         adj_ranks[GRID_LEFT],
+		                         CREATE_MPI_TAG(GRID_LEFT, region_id, MPI_TAG_E),
+		                         MPI_COMM_WORLD,
+		                         &emf->mpi_requests[emf->num_mpi_requests++]));
+
+		CHECK_MPI_ERROR(MPI_Irecv(emf->receive_B[GRID_LEFT],
+		                         emf->nx[1] * segm_nrow,
+		                         MPI_VFLD,
+		                         adj_ranks[GRID_LEFT],
+		                         CREATE_MPI_TAG(GRID_LEFT, region_id, MPI_TAG_B),
+		                         MPI_COMM_WORLD,
+		                         &emf->mpi_requests[emf->num_mpi_requests++]));
 	}
 
 	if (!emf->moving_window || !emf->on_right_edge)
@@ -608,30 +568,42 @@ void emf_send_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks
 			}
 		}
 
-		CHECK_GASPI_ERROR(tagaspi_write(E_SEGMENT_ID, 					// Local segment ID
-		        emf->gaspi_segm_offset_send[GRID_RIGHT] * sizeof(t_vfld),	// Local segment offset
-		        adj_ranks[GRID_RIGHT],										// Rank of the receiving process
-		        E_SEGMENT_ID,												// Remote segment ID
-		        emf->gaspi_remote_offset_send[GRID_RIGHT] * sizeof(t_vfld),	// Remote segment offset
-		        segm_nrow * emf->nx[1] * sizeof(t_vfld),					// Size
-		        queue));													// Queue
+		CHECK_MPI_ERROR(MPI_Isend(E_right,
+		                          emf->nx[1] * segm_nrow,
+		                          MPI_VFLD,
+		                          adj_ranks[GRID_RIGHT],
+		                          CREATE_MPI_TAG(GRID_LEFT, region_id, MPI_TAG_E),
+		                          MPI_COMM_WORLD,
+		                          &emf->mpi_requests[emf->num_mpi_requests++]));
 
-		CHECK_GASPI_ERROR(tagaspi_write_notify(B_SEGMENT_ID, 					// Local segment ID
-		        emf->gaspi_segm_offset_send[GRID_RIGHT] * sizeof(t_vfld),	// Local segment offset
-		        adj_ranks[GRID_RIGHT],										// Rank of the receiving process
-		        B_SEGMENT_ID,												// Remote segment ID
-		        emf->gaspi_remote_offset_send[GRID_RIGHT] * sizeof(t_vfld),	// Remote segment offset
-		        segm_nrow * emf->nx[1] * sizeof(t_vfld),					// Size
-		        NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_EMF),		// Notification ID
-		        COMM_EMF_WRITE,												// Notification value
-		        queue));													// Queue
+		CHECK_MPI_ERROR(MPI_Isend(B_right,
+		                          emf->nx[1] * segm_nrow,
+		                          MPI_VFLD,
+		                          adj_ranks[GRID_RIGHT],
+		                          CREATE_MPI_TAG(GRID_LEFT, region_id, MPI_TAG_B),
+		                          MPI_COMM_WORLD,
+		                          &emf->mpi_requests[emf->num_mpi_requests++]));
+
+		CHECK_MPI_ERROR(MPI_Irecv(emf->receive_E[GRID_RIGHT],
+		                         emf->nx[1] * segm_nrow,
+		                         MPI_VFLD,
+		                         adj_ranks[GRID_RIGHT],
+		                         CREATE_MPI_TAG(GRID_RIGHT, region_id, MPI_TAG_E),
+		                         MPI_COMM_WORLD,
+		                         &emf->mpi_requests[emf->num_mpi_requests++]));
+
+		CHECK_MPI_ERROR(MPI_Irecv(emf->receive_B[GRID_RIGHT],
+		                         emf->nx[1] * segm_nrow,
+		                         MPI_VFLD,
+		                         adj_ranks[GRID_RIGHT],
+		                         CREATE_MPI_TAG(GRID_RIGHT, region_id, MPI_TAG_B),
+		                         MPI_COMM_WORLD,
+		                         &emf->mpi_requests[emf->num_mpi_requests++]));
 	}
 }
 
-void emf_update_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks[4])
+void emf_update_gc_x(t_emf *emf)
 {
-	const unsigned int queue = get_gaspi_queue(region_id);
-
 	const int nrow = emf->nrow;
 	const int segm_nrow = emf->gc[0][0] + emf->gc[0][1];
 
@@ -642,9 +614,7 @@ void emf_update_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ran
 	t_vfld *restrict E_right = emf->receive_E[GRID_RIGHT];
 	t_vfld *restrict B_right = emf->receive_B[GRID_RIGHT];
 
-	const int notif_id[4] = {0, NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_EMF),
-	                         NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_EMF), 0};
-	check_notif_value(notif_id, emf->gaspi_notif, COMM_EMF_WRITE);
+	mpi_wait_async_comm(emf->mpi_requests, emf->num_mpi_requests);
 
 	if (emf->moving_window && emf->shift_window_iter)
 	{
@@ -682,88 +652,98 @@ void emf_update_gc_x(t_emf *emf, const int region_id, const gaspi_rank_t adj_ran
 			}
 		}
 	}
-
-
-	int id = NOTIFICATION_ID(GRID_LEFT, region_id, NOTIF_ID_EMF_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(B_SEGMENT_ID, adj_ranks[GRID_RIGHT], id,
-		                             COMM_EMF_ACK, queue));
-
-	id = NOTIFICATION_ID(GRID_RIGHT, region_id, NOTIF_ID_EMF_ACK);
-	CHECK_GASPI_ERROR(tagaspi_notify(B_SEGMENT_ID, adj_ranks[GRID_LEFT], id,
-		                             COMM_EMF_ACK, queue));
 }
 
-void emf_send_gc_y(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks[NUM_ADJ_GRID])
+void emf_exchange_gc_y(t_emf *emf, const unsigned int adj_ranks[NUM_ADJ_GRID])
 {
-	gaspi_notification_t value;
-	const unsigned int queue = get_gaspi_queue(region_id);
-
-	int remote_offset;
 	const int nrow = emf->nrow;
 
-	const int notif_id[4] = {NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_EMF), 0,
-	                         0, NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_EMF)};
-	check_notif_value(notif_id, emf->gaspi_notif, COMM_EMF_ACK);
+	emf->num_mpi_requests = 0;
+	for (int i = 0; i < 8; ++i)
+		emf->mpi_requests[i] = MPI_REQUEST_NULL;
 
-	if (emf->gaspi_segm_offset_send[GRID_DOWN] >= 0)
+	if (emf->inter_proc_comm[GRID_DOWN])
 	{
-		remote_offset = emf->gaspi_remote_offset_send[GRID_DOWN];
-
 		memcpy(emf->send_E[GRID_DOWN], emf->E_buf, emf->overlap_size * sizeof(t_vfld));
 		memcpy(emf->send_B[GRID_DOWN], emf->B_buf, emf->overlap_size * sizeof(t_vfld));
 
-		CHECK_GASPI_ERROR(tagaspi_write(E_SEGMENT_ID, 					// Local segment ID
-		        emf->gaspi_segm_offset_send[GRID_DOWN] * sizeof(t_vfld),	// Local segment offset
-		        adj_ranks[GRID_DOWN],										// Rank of the receiving process
-		        E_SEGMENT_ID,												// Remote segment ID
-		        remote_offset * sizeof(t_vfld),								// Remote segment offset
-		        emf->overlap_size * sizeof(t_vfld),							// Size
-		        queue));													// Queue
+		CHECK_MPI_ERROR(MPI_Isend(emf->send_E[GRID_DOWN],
+		                          emf->overlap_size,
+		                          MPI_VFLD,
+		                          adj_ranks[GRID_DOWN],
+		                          CREATE_MPI_TAG(GRID_UP, 0, MPI_TAG_E),
+		                          MPI_COMM_WORLD,
+		                          &emf->mpi_requests[emf->num_mpi_requests++]));
 
-		CHECK_GASPI_ERROR(tagaspi_write_notify(B_SEGMENT_ID, 					// Local segment ID
-		        emf->gaspi_segm_offset_send[GRID_DOWN] * sizeof(t_vfld),	// Local segment offset
-		        adj_ranks[GRID_DOWN],										// Rank of the receiving process
-		        B_SEGMENT_ID,												// Remote segment ID
-		        remote_offset * sizeof(t_vfld),								// Remote segment offset
-		        emf->overlap_size * sizeof(t_vfld),							// Size
-		        NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_EMF),					// Notification ID
-		        COMM_EMF_WRITE,												// Notification value
-		        queue));													// Queue
+		CHECK_MPI_ERROR(MPI_Isend(emf->send_B[GRID_DOWN],
+		                          emf->overlap_size,
+		                          MPI_VFLD,
+		                          adj_ranks[GRID_DOWN],
+		                          CREATE_MPI_TAG(GRID_UP, 0, MPI_TAG_B),
+		                          MPI_COMM_WORLD,
+		                          &emf->mpi_requests[emf->num_mpi_requests++]));
+
+		CHECK_MPI_ERROR(MPI_Irecv(emf->receive_E[GRID_DOWN],
+								 emf->overlap_size,
+								 MPI_VFLD,
+								 adj_ranks[GRID_DOWN],
+								 CREATE_MPI_TAG(GRID_DOWN, 0, MPI_TAG_E),
+								 MPI_COMM_WORLD,
+								 &emf->mpi_requests[emf->num_mpi_requests++]));
+
+		CHECK_MPI_ERROR(MPI_Irecv(emf->receive_B[GRID_DOWN],
+								 emf->overlap_size,
+								 MPI_VFLD,
+								 adj_ranks[GRID_DOWN],
+								 CREATE_MPI_TAG(GRID_DOWN, 0, MPI_TAG_B),
+								 MPI_COMM_WORLD,
+								 &emf->mpi_requests[emf->num_mpi_requests++]));
 	}
 
-	if (emf->gaspi_segm_offset_send[GRID_UP] >= 0)
+	if (emf->inter_proc_comm[GRID_UP])
 	{
-		remote_offset = emf->gaspi_remote_offset_send[GRID_UP];
-
 		memcpy(emf->send_E[GRID_UP], emf->E_buf + emf->nx[1] * nrow,
 		       emf->overlap_size * sizeof(t_vfld));
 		memcpy(emf->send_B[GRID_UP], emf->B_buf + emf->nx[1] * nrow,
 		       emf->overlap_size * sizeof(t_vfld));
 
-		CHECK_GASPI_ERROR(tagaspi_write(E_SEGMENT_ID, 				// Local segment ID
-		        emf->gaspi_segm_offset_send[GRID_UP] * sizeof(t_vfld),	// Local segment offset
-		        adj_ranks[GRID_UP],										// Rank of the receiving process
-		        E_SEGMENT_ID,											// Remote segment ID
-		        remote_offset * sizeof(t_vfld),							// Remote segment offset
-		        emf->overlap_size * sizeof(t_vfld),						// Size
-		        queue));												// Queue
+		CHECK_MPI_ERROR(MPI_Isend(emf->send_E[GRID_UP],
+		                          emf->overlap_size,
+		                          MPI_VFLD,
+		                          adj_ranks[GRID_UP],
+		                          CREATE_MPI_TAG(GRID_DOWN, 0, MPI_TAG_E),
+		                          MPI_COMM_WORLD,
+		                          &emf->mpi_requests[emf->num_mpi_requests++]));
 
-		CHECK_GASPI_ERROR(tagaspi_write_notify(B_SEGMENT_ID, 				// Local segment ID
-		        emf->gaspi_segm_offset_send[GRID_UP] * sizeof(t_vfld),	// Local segment offset
-		        adj_ranks[GRID_UP],										// Rank of the receiving process
-		        B_SEGMENT_ID,											// Remote segment ID
-		        remote_offset * sizeof(t_vfld),							// Remote segment offset
-		        emf->overlap_size * sizeof(t_vfld),						// Size
-		        NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_EMF),			// Notification ID
-		        COMM_EMF_WRITE,											// Notification value
-		        queue));												// Queue
+		CHECK_MPI_ERROR(MPI_Isend(emf->send_B[GRID_UP],
+		                          emf->overlap_size,
+		                          MPI_VFLD,
+		                          adj_ranks[GRID_UP],
+		                          CREATE_MPI_TAG(GRID_DOWN, 0, MPI_TAG_B),
+		                          MPI_COMM_WORLD,
+		                          &emf->mpi_requests[emf->num_mpi_requests++]));
+
+		CHECK_MPI_ERROR(MPI_Irecv(emf->receive_E[GRID_UP],
+								 emf->overlap_size,
+								 MPI_VFLD,
+								 adj_ranks[GRID_UP],
+								 CREATE_MPI_TAG(GRID_UP, 0, MPI_TAG_E),
+								 MPI_COMM_WORLD,
+								 &emf->mpi_requests[emf->num_mpi_requests++]));
+
+		CHECK_MPI_ERROR(MPI_Irecv(emf->receive_B[GRID_UP],
+								 emf->overlap_size,
+								 MPI_VFLD,
+								 adj_ranks[GRID_UP],
+								 CREATE_MPI_TAG(GRID_UP, 0, MPI_TAG_B),
+								 MPI_COMM_WORLD,
+								 &emf->mpi_requests[emf->num_mpi_requests++]));
 	}
 }
 
-void emf_update_gc_y(t_emf *emf, const int region_id, const gaspi_rank_t adj_ranks[4])
+void emf_update_gc_y(t_emf *emf)
 {
-	const unsigned int queue = get_gaspi_queue(region_id);
-
+	const int nrow = emf->nrow;
 	t_vfld *restrict E = emf->E_buf;
 	t_vfld *restrict B = emf->B_buf;
 	t_vfld *restrict E_up = emf->receive_E[GRID_UP];
@@ -771,11 +751,7 @@ void emf_update_gc_y(t_emf *emf, const int region_id, const gaspi_rank_t adj_ran
 	t_vfld *restrict E_down = emf->receive_E[GRID_DOWN];
 	t_vfld *restrict B_down = emf->receive_B[GRID_DOWN];
 
-	const int nrow = emf->nrow;
-
-	const int notif_id[4] = {NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_EMF), 0,
-	                         0, NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_EMF)};
-	check_notif_value(notif_id, emf->gaspi_notif, COMM_EMF_WRITE);
+	mpi_wait_async_comm(emf->mpi_requests, emf->num_mpi_requests);
 
 	memcpy(E, E_down, emf->gc[1][0] * nrow * sizeof(t_vfld));
 	memcpy(B, B_down, emf->gc[1][0] * nrow * sizeof(t_vfld));
@@ -784,19 +760,6 @@ void emf_update_gc_y(t_emf *emf, const int region_id, const gaspi_rank_t adj_ran
 	memcpy(B + (emf->gc[1][0] + emf->nx[1]) * nrow, B_up + emf->gc[1][0] * nrow,
 	       emf->gc[1][1] * nrow * sizeof(t_vfld));
 
-	if (emf->gaspi_segm_offset_recv[GRID_UP] >= 0)
-	{
-		int id = NOTIFICATION_ID(GRID_DOWN, 0, NOTIF_ID_EMF_ACK);
-		CHECK_GASPI_ERROR(tagaspi_notify(B_SEGMENT_ID, adj_ranks[GRID_UP], id,
-		                               COMM_EMF_ACK, queue));
-	}
-
-	if (emf->gaspi_segm_offset_recv[GRID_DOWN] >= 0)
-	{
-		int id = NOTIFICATION_ID(GRID_UP, 0, NOTIF_ID_EMF_ACK);
-		CHECK_GASPI_ERROR(tagaspi_notify(B_SEGMENT_ID, adj_ranks[GRID_DOWN], id,
-		                               COMM_EMF_ACK, queue));
-	}
 }
 
 void emf_update_gc_serial(t_vfld *restrict E, t_vfld *restrict B, const int nx[2], const int nrow,
