@@ -1,5 +1,12 @@
 #include "utilities.h"
 
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <nanos6.h>
+#include <cuda.h>
+
 /*********************************************************************************************
  Memory Management
  *********************************************************************************************/
@@ -54,7 +61,7 @@ void grid_prefetch_openacc(t_vfld *buffer, const int size, const int device, voi
  *********************************************************************************************/
 
 // Add the block offset to the vector
-void add_block_sum(int *restrict vector, int *restrict block_sum, const int num_blocks,
+void add_block_sum(int64_t *restrict vector, int64_t *restrict block_sum, const int num_blocks,
         const int block_size, const int vector_size)
 {
 	#pragma acc parallel loop gang
@@ -69,8 +76,8 @@ void add_block_sum(int *restrict vector, int *restrict block_sum, const int num_
 }
 
 // Prefix Sum (Exclusive) - 1 warp per thread block
-void prefix_sum_min(int *restrict vector, int *restrict block_sum, const int num_blocks,
-        const int size)
+void prefix_sum_min(int64_t *restrict vector, int64_t *restrict block_sum, const int num_blocks,
+        const int64_t size)
 {
 	// Prefix sum using a binomial tree
 	#pragma acc parallel loop gang vector_length(MIN_WARP_SIZE)
@@ -123,8 +130,8 @@ void prefix_sum_min(int *restrict vector, int *restrict block_sum, const int num
 }
 
 // Prefix Sum (Exclusive) - Multiple warps per thread block
-void prefix_sum_full(int *restrict vector, int *restrict block_sum, const int num_blocks,
-        const int size)
+void prefix_sum_full(int64_t *restrict vector, int64_t *restrict block_sum, const int num_blocks,
+        const int64_t size)
 {
 	// Prefix sum using a binomial tree
 	#pragma acc parallel loop gang vector_length(LOCAL_BUFFER_SIZE / 2) //
@@ -178,15 +185,15 @@ void prefix_sum_full(int *restrict vector, int *restrict block_sum, const int nu
 }
 
 // Prefix/Scan Sum (Exclusive)
-void prefix_sum_openacc(int *restrict vector, const int size)
+void prefix_sum_openacc(int64_t *restrict vector, const int64_t size)
 {
 	int num_blocks;
-	int *restrict block_sum;
+	int64_t *restrict block_sum;
 
 	if(size < LOCAL_BUFFER_SIZE / 4)
 	{
 		num_blocks = ceil((float) size / MIN_WARP_SIZE);
-		block_sum = malloc(num_blocks * sizeof(int));
+		block_sum = malloc(num_blocks * sizeof(int64_t));
 
 		prefix_sum_min(vector, block_sum, num_blocks, size);
 
@@ -200,7 +207,7 @@ void prefix_sum_openacc(int *restrict vector, const int size)
 	} else
 	{
 		num_blocks = ceil((float) size / LOCAL_BUFFER_SIZE);
-		block_sum = malloc(num_blocks * sizeof(int));
+		block_sum = malloc(num_blocks * sizeof(int64_t));
 
 		prefix_sum_full(vector, block_sum, num_blocks, size);
 
@@ -216,7 +223,7 @@ void prefix_sum_openacc(int *restrict vector, const int size)
 	free(block_sum);
 }
 
-void prefix_sum_serial(int *restrict vector, const int size)
+void prefix_sum_serial(int64_t *restrict vector, const int64_t size)
 {
 	int acc = 0;
 	for (int i = 0; i < size; i++)

@@ -29,9 +29,9 @@
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
 //#include "input/weibel-2000-151M-2048-2048.c"
- #include "input/lwfa-4000-16M-2000-512.c"
+#include "input/lwfa-4000-16M-2000-512.c"
 //#include "input/warm-2000-538M-2900-2900.c"
-//#include "input/weibel-500-67M-512-512.c"
+// #include "input/weibel-500-67M-512-512.c"
 
 #pragma oss assert("version.dependencies==regions")
 int main(int argc, const char *argv[])
@@ -54,20 +54,20 @@ int main(int argc, const char *argv[])
 	fprintf(stderr, "Starting simulation ...\n\n");
 #endif
 
-	uint64_t t0, t1;
+	size_t t0, t1;
 	t0 = timer_ticks();
 
 	for (n = 0, t = 0.0; t <= sim.tmax; n++, t = n * sim.dt)
 	{
-#ifndef TEST
-		fprintf(stderr, "n = %i, t = %f\n", n, t);
+//		if(n == 50) break;
+// 		fprintf(stderr, "n = %i, t = %f\n", n, t);
+// 
+// 		if (report(n, sim.ndump))
+// 		{
+// 			#pragma oss taskwait
+// 			sim_report(&sim);
+// 		}
 
-		if (report(n, sim.ndump))
-		{
-			#pragma oss taskwait
-			sim_report(&sim);
-		}
-#endif		
 		sim_iter(&sim);
 	}
 

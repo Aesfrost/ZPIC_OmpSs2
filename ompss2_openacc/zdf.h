@@ -48,7 +48,7 @@ typedef struct {
 
 typedef struct {
 	uint32_t ndims;
-	uint64_t nx[zdf_max_dims];
+	size_t nx[zdf_max_dims];
 	char* label;
 	char* units;
 
@@ -67,7 +67,7 @@ typedef struct {
 	char** quants;
 	char** units;
 
-	uint64_t np;
+	size_t np;
 } t_zdf_part_info;
 
 

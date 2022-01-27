@@ -13,8 +13,8 @@
 
 #include <stdint.h>
 
-uint64_t timer_ticks( void );
-double timer_interval_seconds(uint64_t start, uint64_t end);
+size_t timer_ticks( void );
+double timer_interval_seconds(size_t start, size_t end);
 double timer_cpu_seconds( void );
 double timer_resolution( void );
 

@@ -27,6 +27,8 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 		float box[], float dt, t_region *prev_region, t_region *next_region)
 {
 	const int num_gpus = acc_get_num_devices(DEVICE_TYPE);
+	const int regions_per_gpu = n_regions < num_gpus ? 1 : n_regions / num_gpus;
+	const int device_id = id / regions_per_gpu;
 
 	region->id = id;
 	region->prev = prev_region;
@@ -49,7 +51,7 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 	for (int n = 0; n < n_spec; ++n)
 	{
 		spec_new(&region->species[n], spec[n].name, spec[n].m_q, spec[n].ppc, spec[n].ufl,
-				spec[n].uth, spec[n].nx, spec[n].box, spec[n].dt, &spec[n].density, region->nx[1], id);
+				spec[n].uth, spec[n].nx, spec[n].box, spec[n].dt, &spec[n].density, region->nx[1], device_id);
 
 		particles = &region->species[n].main_vector;
 
@@ -95,7 +97,7 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 
 #ifdef ENABLE_ADVISE
 		part_vector_mem_advise(&region->species[n].main_vector,
-		        CU_MEM_ADVISE_SET_PREFERRED_LOCATION, region->id % num_gpus);
+		        CU_MEM_ADVISE_SET_PREFERRED_LOCATION, device_id);
 #endif
 	}
 
@@ -110,21 +112,23 @@ void region_new(t_region *region, int n_regions, int nx[2], int id, int n_spec, 
 
 #ifdef ENABLE_ADVISE
 	cuMemAdvise(region->local_current.J_buf, region->local_current.total_size,
-	        CU_MEM_ADVISE_SET_PREFERRED_LOCATION, id % num_gpus);
+	        CU_MEM_ADVISE_SET_PREFERRED_LOCATION, device_id);
 	cuMemAdvise(region->local_emf.E_buf, region->local_emf.total_size,
-	        CU_MEM_ADVISE_SET_PREFERRED_LOCATION, id % num_gpus);
+	        CU_MEM_ADVISE_SET_PREFERRED_LOCATION, device_id);
 	cuMemAdvise(region->local_emf.B_buf, region->local_emf.total_size,
-	        CU_MEM_ADVISE_SET_PREFERRED_LOCATION, id % num_gpus);
+	        CU_MEM_ADVISE_SET_PREFERRED_LOCATION, device_id);
 #endif
 }
 
 // Link two adjacent regions and calculate the overlap zone between them
-void region_init(t_region *region)
+void region_init(t_region *region, const int n_regions)
 {
 	const int num_gpus = acc_get_num_devices(DEVICE_TYPE);
+	const int regions_per_gpu = n_regions < num_gpus ? 1 : n_regions / num_gpus;
+	const int device_id = region->id / regions_per_gpu;
 
-	current_overlap_zone(&region->local_current, &region->prev->local_current, region->id);
-	emf_overlap_zone(&region->local_emf, &region->prev->local_emf, region->id);
+	current_overlap_zone(&region->local_current, &region->prev->local_current, device_id);
+	emf_overlap_zone(&region->local_emf, &region->prev->local_emf, device_id);
 
 	for(int i = 0; i < region->n_species; i++)
 	{

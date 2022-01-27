@@ -14,6 +14,7 @@
 #define __PARTICLES__
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "zpic.h"
 #include "emf.h"
@@ -42,8 +43,8 @@ typedef struct {
 	t_part_data *ux, *uy, *uz;
 	bool *invalid;
 
-	int size;
-	int size_max;
+	int64_t size;
+	int64_t size_max;
 	bool enable_vector;
 
 } t_part_vector;
@@ -102,8 +103,8 @@ typedef struct {
 	// Sort
 	int n_tiles_x;
 	int n_tiles_y;
-	int *tile_offset;
-	int *mv_part_offset;
+	int64_t *tile_offset;
+	int64_t *mv_part_offset;
 
 } t_species;
 
@@ -118,21 +119,25 @@ void spec_delete(t_species *spec);
 void spec_organize_in_tiles(t_species *spec, const int limits_y[2], const int device);
 
 // Utilities
-void part_vector_alloc(t_part_vector *vector, const int size_max, const int device);
+void part_vector_alloc(t_part_vector *vector, const int64_t size_max, const int device);
 void part_vector_free(t_part_vector *vector);
-void part_vector_realloc(t_part_vector *vector, const int new_size, const int device);
-void part_vector_assign_valid_part(const t_part_vector *source, const int source_idx,
-									t_part_vector *target, const int target_idx);
-void part_vector_memcpy(const t_part_vector *source, t_part_vector *target, const int begin,
-						 const int size);
+void part_vector_realloc(t_part_vector *vector, const int64_t new_size, const int device);
+void part_vector_assign_valid_part(const t_part_vector *source, const int64_t source_idx,
+									t_part_vector *target, const int64_t target_idx);
+void part_vector_memcpy(const t_part_vector *source, t_part_vector *target, const int64_t begin,
+						 const int64_t size);
 void part_vector_mem_advise(t_part_vector *vector, const int advise, const int device);
+
+#ifdef ENABLE_PREFETCH
+void spec_prefetch_openacc(t_part_vector *part, const int device, void *stream);
+#endif
 
 // Report - General
 double spec_time(void);
 double spec_perf(void);
 
 // OpenAcc Tasks
-#pragma oss task label("Spec Kernel (GPU)") device(openacc) \
+#pragma oss task label("Spec Advance (GPU)") device(openacc) \
 	in(emf->E_buf[0; emf->total_size]) \
 	in(emf->B_buf[0; emf->total_size]) \
 	inout(current->J_buf[0; current->total_size]) \
@@ -152,7 +157,7 @@ void spec_advance_openacc(t_species *restrict const spec, const t_emf *restrict 
 		inout(spec->main_vector.iy[0; spec->main_vector.size_max]) \
 		inout(spec->main_vector.invalid[0; spec->main_vector.size_max]) \
 		out(*spec->outgoing_part[0]) out(*spec->outgoing_part[1])
-void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2]);
+void spec_check_boundaries_openacc(t_species *spec, const int limits_y[2], const int device);
 
 #pragma oss task label("Spec Move Window (GPU)") device(openacc) \
 		inout(spec->main_vector.ix[0; spec->main_vector.size_max])

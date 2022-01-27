@@ -9,6 +9,7 @@
 
  *********************************************************************************************/
 
+#include "simulation.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -21,7 +22,6 @@
 #include <nanos6.h>
 
 #include "zdf.h"
-#include "simulation.h"
 #include "timer.h"
 #include "utilities.h"
 
@@ -97,7 +97,7 @@ void sim_new(t_simulation *sim, int nx[], float box[], float dt, float tmax, int
 	}
 
 	for(int i = 0; i < n_regions; i++)
-		region_init(&sim->regions[i]);
+		region_init(&sim->regions[i], n_regions);
 
 	// Cleaning
 	for (int n = 0; n < n_species; ++n)
@@ -187,7 +187,7 @@ void sim_iter(t_simulation *sim)
 					&regions[i].local_current, regions[i].limits_y);
 			if (regions[i].species[k].moving_window)
 				spec_move_window_openacc(&regions[i].species[k], regions[i].limits_y, regions[i].id);
-			spec_check_boundaries_openacc(&regions[i].species[k], regions[i].limits_y);
+			spec_check_boundaries_openacc(&regions[i].species[k], regions[i].limits_y, regions[i].id);
 		}
 
 		if (!regions[i].local_current.moving_window)
@@ -264,7 +264,7 @@ void sim_report_energy(t_simulation *sim)
 	}
 }
 
-void sim_timings(t_simulation *sim, uint64_t t0, uint64_t t1, const unsigned int n_iterations)
+void sim_timings(t_simulation *sim, size_t t0, size_t t1, const unsigned int n_iterations)
 {
 	double npart = 0;
 	float sim_time = timer_interval_seconds(t0, t1);
