@@ -28,10 +28,17 @@
 #include "timer.h"
 
 // Simulation parameters (naming scheme : <type>-<number of particles>-<grid size x>-<grid size y>.c)
-//#include "input/weibel-2000-151M-2048-2048.c"
-#include "input/lwfa-4000-16M-2000-512.c"
-//#include "input/warm-2000-538M-2900-2900.c"
-// #include "input/weibel-500-67M-512-512.c"
+
+/* Strong scaling */
+#include "input/weibel-2000-151M-2048-2048.c"
+//#include "input/lwfa-8000-74M-4000-2048.c"
+
+/* Weak scaling */
+//#include "input/weak/weibel-2000-151M-2048-2048.c" /* 1 GPU  */
+//#include "input/weak/weibel-2000-303M-2900-2900.c" /* 2 GPUs */
+//#include "input/weak/weibel-2000-467M-3600-3600.c" /* 3 GPUs */
+//#include "input/weak/weibel-2000-604M-4096-4096.c" /* 4 GPUs */
+
 
 #pragma oss assert("version.dependencies==regions")
 int main(int argc, const char *argv[])
