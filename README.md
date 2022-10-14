@@ -104,7 +104,7 @@ OpenACC:
 - PGI Compiler 19.10 or newer (later renamed as NVIDIA HPC SDK)
 - CUDA v9.0 or newer
 - Pascal or newer GPUs
-- With OmpSs-2, use this experimental version of the [Nanos6 Runtime](https://github.com/epeec/nanos6-openacc) (get-queue-affinity branch)
+- With OmpSs-2, use this experimental version of the [Nanos6 Runtime](https://github.com/epeec/nanos6-openacc) (get-queue-affinity-update2021 branch)
 
 
 ### Compilation Flags
